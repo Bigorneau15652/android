@@ -311,19 +311,52 @@ function configScore(shots, params) {
 
 const yieldToUi = () => new Promise((r) => setTimeout(r, 0));
 
+// How far, on average, refinement had to pull shots away from where the
+// sensor actually measured them (in degrees).
+function meanDeviationFromSensor(shots, sensorBases) {
+  let total = 0;
+  for (let i = 0; i < shots.length; i++) {
+    const a = shots[i].basis.forward, b = sensorBases[i].forward;
+    const c = Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+    total += Math.acos(c) / d2r;
+  }
+  return shots.length ? total / shots.length : 0;
+}
+
 // Evaluates one lens-model candidate. Always restarts from the supplied
 // sensor orientations rather than from whatever the previous candidate
 // converged to: chaining candidates biases the search badly, because the
 // orientations bend to fit whichever FOV was tried first, that config then
 // scores best simply because it was the one fitted, and the true FOV is
 // never selected.
+//
+// `pickScore` (used only to CHOOSE between candidates, never fed into the
+// per-shot local search itself) subtracts a penalty for how far shots had
+// to move from their sensor reading. This exists because of a failure mode
+// found on real captures with repetitive architecture (tiled floors,
+// evenly spaced picture frames/door frames): the photometric match can
+// score deceptively well for a *wrong* FOV, because a wrong FOV combined
+// with shots nudged towards the next repeat of the pattern still overlaps
+// pixel-for-pixel almost as well as the true alignment - classic aliasing.
+// A correct FOV only ever needs to explain a few degrees of real gyro
+// noise per shot; a wrong one has to systematically drag shots further
+// to fake the overlap, which this penalty makes visible. Per-shot search
+// itself stays pure photometric score (bounded to +-6 degrees by
+// REFINE_STAGES/QUICK_STAGES already), so genuine corrections up to that
+// bound are never suppressed - only the FOV choice is guarded.
+const FOV_PICK_DEVIATION_PENALTY = 0.05;
+
 async function evaluateCandidate(shots, sensorBases, candFov, candK1) {
   restoreBases(shots, sensorBases);
   const params = makeParams(candFov, candK1, shots[0]);
   for (let i = 0; i < shots.length; i++) refineShotOrientation(shots, i, params, QUICK_STAGES);
   const score = configScore(shots, params);
+  const deviation = meanDeviationFromSensor(shots, sensorBases);
   await yieldToUi();
-  return { score, hFov: candFov, k1: candK1, bases: snapshotBases(shots) };
+  return {
+    score, hFov: candFov, k1: candK1, bases: snapshotBases(shots), deviation,
+    pickScore: score - FOV_PICK_DEVIATION_PENALTY * deviation,
+  };
 }
 
 // Plain NCC between two shots' greyscale buffers, pixel-for-pixel with no
@@ -384,7 +417,7 @@ export async function calibrateFov(shots, options, onProgress) {
   }
 
   const sensorBases = sensorBasesOf(shots);
-  let best = { score: -Infinity, hFov: null };
+  let best = { score: -Infinity, pickScore: -Infinity, hFov: null };
 
   const scan = async (from, to, step, label) => {
     const values = [];
@@ -393,7 +426,7 @@ export async function calibrateFov(shots, options, onProgress) {
       const v = values[i];
       if (v < min || v > max) continue;
       const r = await evaluateCandidate(shots, sensorBases, v, 0);
-      if (r.score > best.score) best = r;
+      if (r.pickScore > best.pickScore) best = r;
       if (onProgress) onProgress((i + 1) / values.length, label);
     }
   };
@@ -637,7 +670,7 @@ export async function stitchPanorama(shots, options, onProgress) {
       .filter((v) => v >= fovMin && v <= fovMax && v !== hFovGuess);
     for (let ci = 0; ci < fovCandidates.length; ci++) {
       const r = await evaluate(fovCandidates[ci], 0);
-      if (r.score > best.score) best = r;
+      if (r.pickScore > best.pickScore) best = r;
       report(0.05 + 0.3 * ((ci + 1) / fovCandidates.length),
         `Calibrage de l'objectif (${ci + 1}/${fovCandidates.length})`);
     }
@@ -647,7 +680,7 @@ export async function stitchPanorama(shots, options, onProgress) {
     for (let cand = coarseFov - 3; cand <= coarseFov + 3; cand += 1) {
       if (cand === coarseFov || cand < fovMin || cand > fovMax) continue;
       const r = await evaluate(cand, 0);
-      if (r.score > best.score) best = r;
+      if (r.pickScore > best.pickScore) best = r;
       report(0.35 + 0.15 * ((cand - (coarseFov - 3) + 1) / 7), 'Calibrage précis de l’objectif');
     }
 
@@ -656,11 +689,11 @@ export async function stitchPanorama(shots, options, onProgress) {
     for (const ck of k1Candidates) {
       if (ck === 0) continue;
       const r = await evaluate(best.hFov, ck);
-      if (r.score > best.score) best = r;
+      if (r.pickScore > best.pickScore) best = r;
     }
     report(0.6, 'Correction de la distorsion');
 
-    if (best.hFov !== hFovGuess && best.score < baseline.score + 0.01) best = baseline;
+    if (best.hFov !== hFovGuess && best.pickScore < baseline.pickScore + 0.01) best = baseline;
     hFov = best.hFov;
     k1 = best.k1;
     restoreBases(shots, best.bases);
