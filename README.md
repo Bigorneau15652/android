@@ -72,6 +72,33 @@ Si une calibration échoue, l'app le dit explicitement et conserve la valeur
 précédente plutôt que d'enregistrer une mesure douteuse — refais un essai
 dans un endroit éclairé avec des détails visibles, en pivotant lentement.
 
+## L'écran d'accueil
+
+L'accueil est la galerie : tes photos 360 s'y empilent en vignettes (environ
+trois visibles à la fois, fais défiler pour voir les suivantes), la plus
+récente en haut. L'interface est en icônes seules :
+
+- **☰ en haut à gauche** : réglages (objectif, calibration, densité…).
+- **? en haut à droite** : le tutoriel de prise de vue.
+- **Rond foncé avec l'appareil photo, en bas à droite** : lance une
+  nouvelle capture 360.
+- **Petit rond clair à côté** : exporte / partage la **dernière** photo
+  prise. Pour n'importe quelle autre, ouvre-la et utilise les boutons de la
+  visionneuse.
+
+## La visionneuse 360 (visite virtuelle)
+
+Touche une vignette pour ouvrir la photo en plein écran :
+
+- **Glisse un doigt** pour regarder autour de toi.
+- **Pince à deux doigts** pour zoomer / dézoomer.
+- **Bouton boussole en haut à droite** : active la *visite virtuelle* —
+  bouge simplement le téléphone et l'image suit tes mouvements, comme si tu
+  étais sur place. Retouche le bouton pour revenir au mode tactile. (Si le
+  téléphone ne fournit pas les capteurs nécessaires, l'app te le dit et le
+  mode tactile reste disponible.)
+- En bas : partager, télécharger, renommer, supprimer.
+
 ## Comment ça marche
 
 0. À la toute première utilisation, un court tutoriel en français

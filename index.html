@@ -13,17 +13,48 @@
 </head>
 <body>
 
-<!-- ===================== HOME ===================== -->
+<!-- ===================== HOME (gallery) ===================== -->
 <section id="screen-home" class="screen active">
-  <header class="topbar">
-    <h1>Photo 360 Capture</h1>
+  <header class="home-topbar">
+    <button id="btn-settings" class="icon-btn" aria-label="Réglages" title="Réglages">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <button id="btn-help" class="icon-btn" aria-label="Comment bien photographier ?" title="Aide">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M9.6 9.2a2.5 2.5 0 1 1 3.3 2.4c-.6.2-.9.7-.9 1.3v.6"/>
+        <circle cx="12" cy="17" r="1.1" fill="currentColor" stroke="none"/>
+      </svg>
+    </button>
   </header>
-  <div class="content home-content">
-    <button id="btn-new-capture" class="btn btn-primary btn-big">📷 Nouvelle capture 360°</button>
-    <button id="btn-gallery" class="btn btn-secondary btn-big">🖼️ Mes photos 360</button>
-    <button id="btn-settings" class="btn btn-ghost">⚙️ Réglages</button>
-    <button id="btn-help" class="btn btn-ghost">ℹ️ Comment bien photographier ?</button>
-    <p class="hint" id="home-hint"></p>
+
+  <div id="home-list" class="home-list"></div>
+
+  <div id="home-empty" class="home-empty hidden">
+    <svg viewBox="0 0 24 24" class="home-empty-icon" aria-hidden="true">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18"/>
+    </svg>
+    <p>Aucune photo 360 pour l'instant.</p>
+    <p class="hint">Appuie sur l'appareil photo pour en créer une.</p>
+  </div>
+
+  <p class="hint home-warning hidden" id="home-hint"></p>
+
+  <div class="fab-bar">
+    <button id="btn-export" class="fab fab-small" aria-label="Exporter / partager la dernière photo" title="Exporter / partager">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 16V4M12 4l-4 4M12 4l4 4"/>
+        <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>
+      </svg>
+    </button>
+    <button id="btn-new-capture" class="fab fab-main" aria-label="Nouvelle capture 360" title="Nouvelle capture 360">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1.2-2h5.9l1.2 2h4.5A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/>
+        <circle cx="11" cy="13" r="3.3"/>
+        <path d="M18.5 11.2h2.8M19.9 9.8v2.8"/>
+      </svg>
+    </button>
   </div>
 </section>
 
@@ -207,34 +238,46 @@
   </div>
 </section>
 
-<!-- ===================== GALLERY ===================== -->
-<section id="screen-gallery" class="screen">
-  <header class="topbar">
-    <button class="btn-icon back-btn" data-back="screen-home">←</button>
-    <h1>Mes photos 360</h1>
-  </header>
-  <div class="content">
-    <div id="gallery-empty" class="hint hidden">Aucune photo 360 enregistrée pour l'instant.</div>
-    <div id="gallery-list" class="gallery-grid"></div>
-  </div>
-</section>
-
 <!-- ===================== VIEWER ===================== -->
 <section id="screen-viewer" class="screen">
-  <header class="topbar">
-    <button class="btn-icon back-btn" data-back="screen-gallery">←</button>
-    <h1 id="viewer-title">Photo 360</h1>
-  </header>
-  <div id="viewer-pannellum" class="pannellum-box pannellum-box-full"></div>
-  <div class="viewer-actions">
-    <div class="btn-row">
-      <button id="btn-viewer-share" class="btn btn-secondary">✉️ Envoyer par email / Partager</button>
-      <button id="btn-viewer-download" class="btn btn-secondary">⬇️ Télécharger</button>
-    </div>
-    <div class="btn-row">
-      <button id="btn-viewer-rename" class="btn btn-ghost">✏️ Renommer</button>
-      <button id="btn-viewer-delete" class="btn btn-ghost btn-danger">🗑️ Supprimer</button>
-    </div>
+  <div id="viewer-pannellum" class="viewer-stage"></div>
+
+  <div class="viewer-topbar">
+    <button class="icon-btn icon-btn-dark back-btn" data-back="screen-home" aria-label="Retour" title="Retour">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <div id="viewer-title" class="viewer-title"></div>
+    <button id="btn-viewer-gyro" class="icon-btn icon-btn-dark" aria-label="Visite virtuelle (gyroscope)" title="Visite virtuelle : bouge le téléphone">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M15.5 8.5l-2 5-5 2 2-5z"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="viewer-actionbar">
+    <button id="btn-viewer-share" class="icon-btn icon-btn-dark" aria-label="Envoyer par email / Partager" title="Envoyer / Partager">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/>
+        <path d="M8.3 10.8l7.4-4.3M8.3 13.2l7.4 4.3"/>
+      </svg>
+    </button>
+    <button id="btn-viewer-download" class="icon-btn icon-btn-dark" aria-label="Télécharger le JPG" title="Télécharger">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 4v12M12 16l-4-4M12 16l4-4"/>
+        <path d="M4 18v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1"/>
+      </svg>
+    </button>
+    <button id="btn-viewer-rename" class="icon-btn icon-btn-dark" aria-label="Renommer" title="Renommer">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 20h4l10-10-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>
+      </svg>
+    </button>
+    <button id="btn-viewer-delete" class="icon-btn icon-btn-dark icon-btn-danger" aria-label="Supprimer" title="Supprimer">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 7h14M10 7V5h4v2M6.5 7l1 13h9l1-13"/>
+      </svg>
+    </button>
   </div>
 </section>
 

@@ -70,12 +70,202 @@ html, body {
   gap: 16px;
 }
 
-.home-content {
+/* ---------- icon-only buttons ---------- */
+/* Icons are stroked SVGs so a single rule controls their weight and they
+   stay crisp at any size; `currentColor` lets each context set the tint. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;              /* keeps every control at a comfortable tap size */
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.icon-btn svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* Sits on top of arbitrary photo content, so it carries its own solid
+   backing rather than relying on whatever happens to be behind it. */
+.icon-btn-dark {
+  background: rgba(0, 0, 0, 0.62);
+  color: #ffffff;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+.icon-btn-dark.active { background: var(--blue); color: #ffffff; }
+.icon-btn-danger { color: #ff9aa8; }
+.icon-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* ---------- home: gallery + floating actions ---------- */
+.home-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 8px 4px;
+  background: var(--bg);
+}
+.home-list {
+  padding: 4px 12px 130px;   /* bottom room so the FABs never cover a card */
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding-top: 40px;
+  max-width: 640px;
+  margin: 0 auto;
 }
+.home-card {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+  cursor: pointer;
+  /* ~3 cards visible on a phone screen, scroll for the rest */
+  aspect-ratio: 2 / 1;
+}
+.home-card img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.home-card-overlay {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 26px 14px 10px;
+  background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.75));
+  text-align: left;
+}
+.home-card-name {
+  display: block;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+.home-card-date {
+  display: block;
+  color: rgba(255,255,255,0.85);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.home-card-overlay { display: block; }
+.home-card-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 20px;
+  background: rgba(0,0,0,0.55);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.home-empty {
+  text-align: center;
+  padding: 60px 24px;
+  color: var(--muted);
+}
+.home-empty-icon {
+  width: 64px; height: 64px;
+  fill: none; stroke: var(--border);
+  stroke-width: 1.4;
+  margin-bottom: 12px;
+}
+.home-warning { padding: 0 16px 12px; }
+
+.fab-bar {
+  position: fixed;
+  right: 16px;
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  z-index: 5;
+}
+.fab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.28);
+}
+.fab svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.fab-main {
+  width: 68px; height: 68px;
+  background: var(--navy);
+  color: #ffffff;
+}
+.fab-main svg { width: 30px; height: 30px; }
+.fab-small {
+  width: 52px; height: 52px;
+  background: #ffffff;
+  color: var(--navy);
+}
+.fab-small svg { width: 22px; height: 22px; }
+.fab:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- viewer ---------- */
+.viewer-stage {
+  position: absolute;
+  inset: 0;
+  background: #000;
+}
+.viewer-topbar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 0;
+  z-index: 3;
+}
+.viewer-title {
+  flex: 1;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.viewer-actionbar {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  z-index: 3;
+}
+#screen-viewer { position: relative; height: 100vh; overflow: hidden; }
 
 /* ---------- buttons & form controls ---------- */
 .btn {
@@ -228,30 +418,7 @@ select, input[type=text], input[type=range] {
 }
 .capture-bottombar .btn { flex: 1 1 auto; }
 
-/* ---------- gallery ---------- */
-.gallery-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 12px;
-}
-.gallery-item {
-  background: #ffffff;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-  cursor: pointer;
-  text-align: left;
-}
-.gallery-item img { display: block; width: 100%; height: 90px; object-fit: cover; }
-.gallery-item .gi-name {
-  font-size: 13px;
-  font-weight: 600;
-  padding: 8px;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-/* ---------- pannellum containers ---------- */
+/* ---------- pannellum container (result preview) ---------- */
 .pannellum-box {
   width: 100%;
   height: 46vh;
@@ -261,8 +428,6 @@ select, input[type=text], input[type=range] {
   margin-bottom: 14px;
   background: #000;
 }
-.pannellum-box-full { height: calc(100vh - 118px); border-radius: 0; margin-bottom: 0; }
-.viewer-actions { padding: 10px 12px; }
 
 .progress-track {
   width: 100%;

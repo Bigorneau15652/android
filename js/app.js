@@ -29,13 +29,23 @@ let currentViewerPhotoId = null;
 
 // ---------------- navigation ----------------
 function showScreen(id) {
-  if (currentViewer) { try { currentViewer.destroy(); } catch (e) {} currentViewer = null; }
+  if (currentViewer) {
+    // destroy() also tears down the gyroscope listeners Pannellum attaches
+    // in orientation mode, so leaving the viewer never leaves them running.
+    try { currentViewer.destroy(); } catch (e) {}
+    currentViewer = null;
+  }
   document.querySelectorAll('.screen').forEach((el) => el.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
 
 document.querySelectorAll('[data-back]').forEach((btn) => {
-  btn.addEventListener('click', () => showScreen(btn.dataset.back));
+  btn.addEventListener('click', () => {
+    // Going back to the home screen must re-read the photo list: it is the
+    // gallery now, so a rename or delete has to show up immediately.
+    if (btn.dataset.back === 'screen-home') goHome();
+    else showScreen(btn.dataset.back);
+  });
 });
 
 // ---------------- settings ----------------
@@ -136,11 +146,9 @@ document.getElementById('btn-settings').addEventListener('click', () => {
 const homeHint = document.getElementById('home-hint');
 if (!window.isSecureContext) {
   homeHint.textContent = "⚠️ Cette page n'est pas ouverte en HTTPS ni via localhost : la caméra sera bloquée. Voir le README pour lancer l'app correctement.";
-} else {
-  homeHint.textContent = '';
+  homeHint.classList.remove('hidden');
 }
 
-document.getElementById('btn-gallery').addEventListener('click', openGallery);
 document.getElementById('btn-new-capture').addEventListener('click', () => {
   if (!localStorage.getItem(ONBOARDING_SEEN_KEY)) openOnboarding(startPrep);
   else startPrep();
@@ -171,7 +179,7 @@ function closeOnboarding() {
   localStorage.setItem(ONBOARDING_SEEN_KEY, '1');
   const action = onboardingReturnAction;
   onboardingReturnAction = null;
-  if (action) action(); else showScreen('screen-home');
+  if (action) action(); else goHome();
 }
 
 onboardingNextBtn.addEventListener('click', () => {
@@ -405,7 +413,7 @@ async function goToCapture() {
   document.getElementById('btn-capture-cancel').onclick = () => {
     ctrl.stop();
     ctrl.stopCamera();
-    showScreen('screen-home');
+    goHome();
   };
 
   ctrl.start();
@@ -423,7 +431,7 @@ async function finishCapture(shots) {
 
   if (!shots.length) {
     alert("Aucune photo n'a été prise.");
-    showScreen('screen-home');
+    goHome();
     return;
   }
 
@@ -475,14 +483,13 @@ function openPreview() {
 
 document.getElementById('btn-preview-discard').addEventListener('click', () => {
   pendingCanvas = null;
-  showScreen('screen-home');
+  goHome();
 });
 
 document.getElementById('btn-preview-save').addEventListener('click', async () => {
   const name = previewNameInput.value.trim() || 'Photo 360';
   await persistCurrentPhoto(name);
-  alert('Photo enregistrée dans la galerie.');
-  showScreen('screen-home');
+  goHome();
 });
 
 document.getElementById('btn-preview-share').addEventListener('click', () => sharePendingCanvas(previewNameInput.value.trim() || 'photo360'));
@@ -573,29 +580,70 @@ function sanitizeFilename(name) {
   return name.replace(/[^a-z0-9\-_ ]/gi, '').trim().replace(/\s+/g, '_').slice(0, 60) || 'photo360';
 }
 
-// ---------------- gallery ----------------
-const galleryList = document.getElementById('gallery-list');
-const galleryEmpty = document.getElementById('gallery-empty');
+// ---------------- home gallery ----------------
+const homeList = document.getElementById('home-list');
+const homeEmpty = document.getElementById('home-empty');
+const exportBtn = document.getElementById('btn-export');
+// Object URLs for the thumbnails currently on screen; revoked when the
+// list is rebuilt so repeated refreshes don't leak blob URLs.
+let homeThumbUrls = [];
+let latestPhotoId = null;
 
-async function openGallery() {
-  showScreen('screen-gallery');
+async function refreshHome() {
   const photos = await listPhotos();
-  galleryList.innerHTML = '';
-  galleryEmpty.classList.toggle('hidden', photos.length > 0);
+  for (const u of homeThumbUrls) URL.revokeObjectURL(u);
+  homeThumbUrls = [];
+  homeList.innerHTML = '';
+  homeEmpty.classList.toggle('hidden', photos.length > 0);
+  latestPhotoId = photos.length ? photos[0].id : null;
+  exportBtn.disabled = !latestPhotoId;
+
   for (const p of photos) {
-    const thumbUrl = URL.createObjectURL(p.thumbBlob || p.blob);
-    const item = document.createElement('button');
-    item.className = 'gallery-item';
-    item.innerHTML = `<img src="${thumbUrl}" alt=""><div class="gi-name"></div>`;
-    item.querySelector('.gi-name').textContent = p.name;
-    item.addEventListener('click', () => openViewer(p.id));
-    galleryList.appendChild(item);
+    const url = URL.createObjectURL(p.thumbBlob || p.blob);
+    homeThumbUrls.push(url);
+    const card = document.createElement('button');
+    card.className = 'home-card';
+    card.type = 'button';
+    card.innerHTML =
+      '<img alt="">' +
+      '<span class="home-card-badge">360°</span>' +
+      '<span class="home-card-overlay">' +
+        '<span class="home-card-name"></span>' +
+        '<span class="home-card-date"></span>' +
+      '</span>';
+    card.querySelector('img').src = url;
+    card.querySelector('.home-card-name').textContent = p.name;
+    card.querySelector('.home-card-date').textContent =
+      new Date(p.createdAt).toLocaleString('fr-FR', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+    card.addEventListener('click', () => openViewer(p.id));
+    homeList.appendChild(card);
   }
 }
+
+function goHome() {
+  showScreen('screen-home');
+  refreshHome();
+}
+
+// The floating export button acts on the most recent photo - the one the
+// user just made. Any other photo is exported from its own viewer, which
+// is where per-photo actions live.
+exportBtn.addEventListener('click', async () => {
+  if (!latestPhotoId) return;
+  const record = await getPhoto(latestPhotoId);
+  if (record) await shareBlob(record.blob, record.name);
+});
+
+refreshHome();
 
 // ---------------- viewer ----------------
 const viewerPannellumEl = document.getElementById('viewer-pannellum');
 const viewerTitle = document.getElementById('viewer-title');
+const gyroBtn = document.getElementById('btn-viewer-gyro');
+let viewerObjectUrl = null;
 
 async function openViewer(id) {
   const record = await getPhoto(id);
@@ -603,12 +651,58 @@ async function openViewer(id) {
   currentViewerPhotoId = id;
   showScreen('screen-viewer');
   viewerTitle.textContent = record.name;
-  const url = URL.createObjectURL(record.blob);
+  if (viewerObjectUrl) URL.revokeObjectURL(viewerObjectUrl);
+  viewerObjectUrl = URL.createObjectURL(record.blob);
   viewerPannellumEl.innerHTML = '';
+  // Pannellum already handles drag-to-look and pinch-to-zoom; the gyro
+  // ("virtual tour") mode is its own orientation support, toggled below.
+  // Its built-in control chrome is hidden: the zoom buttons sit in the
+  // top-left corner, right underneath this screen's own back button, and
+  // touch gestures cover the same job on a phone anyway.
   currentViewer = window.pannellum.viewer(viewerPannellumEl, {
-    type: 'equirectangular', panorama: url, autoLoad: true,
+    type: 'equirectangular',
+    panorama: viewerObjectUrl,
+    autoLoad: true,
+    showControls: false,
+    friction: 0.15,
   });
+  updateGyroButton();
 }
+
+function updateGyroButton() {
+  const active = !!(currentViewer && currentViewer.isOrientationActive && currentViewer.isOrientationActive());
+  gyroBtn.classList.toggle('active', active);
+  gyroBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+}
+
+gyroBtn.addEventListener('click', async () => {
+  if (!currentViewer) return;
+  if (!currentViewer.isOrientationSupported || !currentViewer.isOrientationSupported()) {
+    alert("Ce téléphone ou ce navigateur ne fournit pas les capteurs d'orientation " +
+      'nécessaires. Tu peux quand même explorer la photo au doigt : glisse pour ' +
+      'regarder autour de toi, pince pour zoomer.');
+    return;
+  }
+  if (currentViewer.isOrientationActive()) {
+    currentViewer.stopOrientation();
+  } else {
+    // iOS-style permission gate; a no-op on Android Chrome.
+    const DOE = window.DeviceOrientationEvent;
+    if (DOE && typeof DOE.requestPermission === 'function') {
+      try {
+        if (await DOE.requestPermission() !== 'granted') {
+          alert("Accès aux capteurs refusé : la visite virtuelle ne peut pas démarrer.");
+          return;
+        }
+      } catch (e) {
+        alert("Accès aux capteurs refusé : la visite virtuelle ne peut pas démarrer.");
+        return;
+      }
+    }
+    currentViewer.startOrientation();
+  }
+  updateGyroButton();
+});
 
 document.getElementById('btn-viewer-share').addEventListener('click', async () => {
   const record = await getPhoto(currentViewerPhotoId);
@@ -630,8 +724,7 @@ document.getElementById('btn-viewer-rename').addEventListener('click', async () 
 document.getElementById('btn-viewer-delete').addEventListener('click', async () => {
   if (!confirm('Supprimer définitivement cette photo 360 ?')) return;
   await deletePhoto(currentViewerPhotoId);
-  showScreen('screen-gallery');
-  openGallery();
+  goHome();
 });
 
 // ---------------- service worker ----------------

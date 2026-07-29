@@ -91,22 +91,27 @@ export class OrientationTracker {
   }
 
   _onEvent(event) {
+    if (this._lockedType != null && event.type !== this._lockedType) return;
+
+    let alpha = event.alpha, beta = event.beta, gamma = event.gamma;
+    // Must come BEFORE locking onto this event type. Browsers commonly fire
+    // an initial 'deviceorientationabsolute' event with null angles while
+    // the magnetometer is still settling (or when there is no compass at
+    // all); locking on that one would tear down the other listener and
+    // leave the app waiting forever for data that never comes.
+    if (alpha == null || beta == null || gamma == null) return;
+
     // Some browsers/OS versions fire both 'deviceorientation' and
     // 'deviceorientationabsolute' concurrently, each backed by a different
-    // underlying sensor fusion pipeline (magnetometer-corrected vs
-    // gyro-only). Reading from both interleaved makes the orientation jump
-    // between two inconsistent references frame to frame. Lock onto
-    // whichever type shows up first and ignore the other for the session.
+    // sensor fusion pipeline (magnetometer-corrected vs gyro-only).
+    // Reading both interleaved makes the orientation jump between two
+    // inconsistent references frame to frame, so commit to whichever type
+    // first delivers usable angles and ignore the other from then on.
     if (this._lockedType == null) {
       this._lockedType = event.type;
       const other = event.type === 'deviceorientationabsolute' ? 'deviceorientation' : 'deviceorientationabsolute';
       window.removeEventListener(other, this._handler, true);
-    } else if (event.type !== this._lockedType) {
-      return;
     }
-
-    let alpha = event.alpha, beta = event.beta, gamma = event.gamma;
-    if (alpha == null || beta == null || gamma == null) return;
 
     // Some Android builds only expose a compass-referenced alpha via
     // webkitCompassHeading (rare) — prefer absolute event/flag when present.
