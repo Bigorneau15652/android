@@ -42,6 +42,18 @@ export async function deletePhoto(id) {
   await tx(db, 'readwrite', (store) => store.delete(id));
 }
 
+// Appends one entry to a photo's export history, so the app can tell the
+// user where a given photo has already been saved or sent. Kept per photo
+// rather than as a global log: the useful question is "have I exported
+// THIS one, and under what name".
+export async function recordExport(id, entry) {
+  const db = await openDb();
+  const record = await tx(db, 'readonly', (store) => store.get(id));
+  if (!record) return;
+  record.exports = [...(record.exports || []), { at: Date.now(), ...entry }].slice(-12);
+  await tx(db, 'readwrite', (store) => store.put(record));
+}
+
 export async function renamePhoto(id, name) {
   const db = await openDb();
   const record = await tx(db, 'readonly', (store) => store.get(id));

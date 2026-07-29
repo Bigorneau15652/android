@@ -255,11 +255,20 @@
     </button>
   </div>
 
+  <div id="viewer-export-info" class="viewer-export-info"></div>
+  <div id="viewer-export-status" class="viewer-export-status hidden"></div>
+
   <div class="viewer-actionbar">
-    <button id="btn-viewer-share" class="icon-btn icon-btn-dark" aria-label="Envoyer par email / Partager" title="Envoyer / Partager">
+    <button id="btn-viewer-share" class="icon-btn icon-btn-dark" aria-label="Envoyer la photo par email / Partager" title="Envoyer la photo (JPG)">
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/>
         <path d="M8.3 10.8l7.4-4.3M8.3 13.2l7.4 4.3"/>
+      </svg>
+    </button>
+    <button id="btn-viewer-web" class="icon-btn icon-btn-dark" aria-label="Envoyer une visite virtuelle (page web autonome)" title="Envoyer une visite virtuelle">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18"/>
       </svg>
     </button>
     <button id="btn-viewer-download" class="icon-btn icon-btn-dark" aria-label="Télécharger le JPG" title="Télécharger">

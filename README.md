@@ -97,7 +97,22 @@ Touche une vignette pour ouvrir la photo en plein écran :
   étais sur place. Retouche le bouton pour revenir au mode tactile. (Si le
   téléphone ne fournit pas les capteurs nécessaires, l'app te le dit et le
   mode tactile reste disponible.)
-- En bas : partager, télécharger, renommer, supprimer.
+- En bas : envoyer la photo (JPG), **envoyer une visite virtuelle**,
+  télécharger, renommer, supprimer.
+- Juste au-dessus des boutons, un bandeau rappelle **où et quand** cette
+  photo a été exportée pour la dernière fois (aussi visible en résumé sur
+  sa vignette à l'accueil), pour ne plus avoir à s'en souvenir soi-même.
+
+### Envoyer une visite virtuelle (sans compte, sans lien)
+
+Le bouton globe (🌐) génère un **fichier web autonome** : la photo 360 et
+le lecteur interactif complet sont intégrés dans un seul `.html` que tu
+envoies comme n'importe quelle pièce jointe (email, WhatsApp...). La
+personne qui le reçoit double-clique dessus et l'ouvre dans son
+navigateur : elle peut glisser pour regarder autour et pincer pour
+zoomer, exactement comme dans l'app — **sans rien installer, sans compte,
+et même sans connexion internet**. C'est l'équivalent pratique d'un lien
+de partage, sans avoir besoin d'un serveur en ligne.
 
 ## Comment ça marche
 

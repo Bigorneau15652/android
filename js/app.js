@@ -2,7 +2,8 @@ import { OrientationTracker } from './orientation.js';
 import { buildGrid } from './grid.js';
 import { CaptureController, listRearCameras, openCameraStream, CalibrationCapture } from './capture.js';
 import { stitchPanorama, calibrateFov, prepareShot } from './align.js';
-import { savePhoto, listPhotos, getPhoto, deletePhoto, renamePhoto } from './storage.js';
+import { savePhoto, listPhotos, getPhoto, deletePhoto, renamePhoto, recordExport } from './storage.js';
+import { buildStandaloneViewer } from './export.js';
 
 const SETTINGS_KEY = 'photo360-settings-v1';
 const DEFAULT_SETTINGS = {
@@ -518,9 +519,18 @@ function downloadPendingCanvas(name) {
   pendingCanvas.toBlob((blob) => downloadBlob(blob, name), 'image/jpeg', 0.9);
 }
 
-async function shareBlob(blob, name) {
-  const filename = `${sanitizeFilename(name)}.jpg`;
-  const file = new File([blob], filename, { type: 'image/jpeg' });
+const FORMATS = {
+  jpg: { ext: 'jpg', mime: 'image/jpeg', label: 'Image JPEG', accept: { 'image/jpeg': ['.jpg', '.jpeg'] } },
+  html: { ext: 'html', mime: 'text/html', label: 'Page web 360', accept: { 'text/html': ['.html'] } },
+};
+
+// All three exit paths return the same shape ({ method, filename } or null
+// when the user cancelled) so callers can record consistently where a
+// photo actually ended up.
+async function shareBlob(blob, name, formatKey = 'jpg') {
+  const fmt = FORMATS[formatKey];
+  const filename = `${sanitizeFilename(name)}.${fmt.ext}`;
+  const file = new File([blob], filename, { type: fmt.mime });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({
@@ -528,39 +538,42 @@ async function shareBlob(blob, name) {
         title: name,
         text: `Photo 360° : ${name}`,
       });
-      return;
+      return { method: 'share', filename, format: formatKey };
     } catch (err) {
-      if (err && err.name === 'AbortError') return; // user cancelled
+      if (err && err.name === 'AbortError') return null; // user cancelled
     }
   }
-  const saved = await downloadBlob(blob, name);
+  const saved = await downloadBlob(blob, name, formatKey);
   if (saved) {
     alert("Le partage direct n'est pas disponible sur ce navigateur : le fichier a été enregistré. " +
       'Ouvre ton application email ou de messagerie et joins-le manuellement.');
   }
+  return saved;
 }
 
 // Enregistre le blob sur le téléphone. Quand le navigateur le permet
-// (File System Access API), ouvre le sélecteur natif Android : l'utilisateur
-// choisit lui-même le dossier (stockage interne, carte SD, Drive...) et peut
-// modifier le nom de fichier proposé avant de valider. Sinon, retombe sur le
-// téléchargement classique du navigateur (toujours dans "Téléchargements",
-// nom de fichier imposé). Renvoie false si l'utilisateur annule le
-// sélecteur (pas de fallback forcé dans ce cas - il a choisi d'annuler).
-async function downloadBlob(blob, name) {
-  const filename = `${sanitizeFilename(name)}.jpg`;
+// (File System Access API), ouvre le sélecteur natif : l'utilisateur choisit
+// lui-même le dossier (stockage interne, carte SD, Drive...) et peut modifier
+// le nom de fichier proposé. Sinon, retombe sur le téléchargement classique
+// du navigateur (dossier Téléchargements, nom imposé) - c'est notamment le
+// cas de Chrome sur Android, qui n'expose pas ce sélecteur.
+async function downloadBlob(blob, name, formatKey = 'jpg') {
+  const fmt = FORMATS[formatKey];
+  const filename = `${sanitizeFilename(name)}.${fmt.ext}`;
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({
         suggestedName: filename,
-        types: [{ description: 'Image JPEG', accept: { 'image/jpeg': ['.jpg', '.jpeg'] } }],
+        types: [{ description: fmt.label, accept: fmt.accept }],
       });
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();
-      return true;
+      // handle.name is the name the user actually confirmed, which may
+      // differ from the one we suggested.
+      return { method: 'picker', filename: handle.name || filename, format: formatKey };
     } catch (err) {
-      if (err && err.name === 'AbortError') return false;
+      if (err && err.name === 'AbortError') return null;
       // Any other error (partial/older browser support): fall through to
       // the classic download below.
     }
@@ -573,7 +586,21 @@ async function downloadBlob(blob, name) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
-  return true;
+  return { method: 'download', filename, format: formatKey };
+}
+
+// Human-readable summary of a photo's export history, e.g.
+// "Téléchargé le 29/07/2026 → Salle_204.jpg".
+const EXPORT_METHOD_LABEL = {
+  picker: 'Enregistré',
+  download: 'Téléchargé',
+  share: 'Partagé',
+};
+function describeExport(entry) {
+  if (!entry) return '';
+  const when = new Date(entry.at).toLocaleDateString('fr-FR');
+  const what = entry.format === 'html' ? ' (page web)' : '';
+  return `${EXPORT_METHOD_LABEL[entry.method] || 'Exporté'} le ${when} → ${entry.filename}${what}`;
 }
 
 function sanitizeFilename(name) {
@@ -610,6 +637,7 @@ async function refreshHome() {
       '<span class="home-card-overlay">' +
         '<span class="home-card-name"></span>' +
         '<span class="home-card-date"></span>' +
+        '<span class="home-card-export"></span>' +
       '</span>';
     card.querySelector('img').src = url;
     card.querySelector('.home-card-name').textContent = p.name;
@@ -618,6 +646,9 @@ async function refreshHome() {
         day: '2-digit', month: '2-digit', year: 'numeric',
         hour: '2-digit', minute: '2-digit',
       });
+    const lastExport = p.exports && p.exports.length ? p.exports[p.exports.length - 1] : null;
+    card.querySelector('.home-card-export').textContent =
+      lastExport ? `✔ ${describeExport(lastExport)}` : '';
     card.addEventListener('click', () => openViewer(p.id));
     homeList.appendChild(card);
   }
@@ -634,7 +665,12 @@ function goHome() {
 exportBtn.addEventListener('click', async () => {
   if (!latestPhotoId) return;
   const record = await getPhoto(latestPhotoId);
-  if (record) await shareBlob(record.blob, record.name);
+  if (!record) return;
+  const result = await shareBlob(record.blob, record.name);
+  if (result) {
+    await recordExport(latestPhotoId, result);
+    refreshHome();
+  }
 });
 
 refreshHome();
@@ -643,7 +679,18 @@ refreshHome();
 const viewerPannellumEl = document.getElementById('viewer-pannellum');
 const viewerTitle = document.getElementById('viewer-title');
 const gyroBtn = document.getElementById('btn-viewer-gyro');
+const viewerExportStatus = document.getElementById('viewer-export-status');
+const viewerExportInfo = document.getElementById('viewer-export-info');
 let viewerObjectUrl = null;
+
+// Shows where this photo has already been saved or sent, so the user does
+// not have to remember - that was the point of asking for it.
+async function showViewerExportInfo() {
+  const record = await getPhoto(currentViewerPhotoId);
+  const last = record && record.exports && record.exports.length
+    ? record.exports[record.exports.length - 1] : null;
+  viewerExportInfo.textContent = last ? describeExport(last) : 'Pas encore exportée';
+}
 
 async function openViewer(id) {
   const record = await getPhoto(id);
@@ -667,6 +714,7 @@ async function openViewer(id) {
     friction: 0.15,
   });
   updateGyroButton();
+  showViewerExportInfo();
 }
 
 function updateGyroButton() {
@@ -704,14 +752,36 @@ gyroBtn.addEventListener('click', async () => {
   updateGyroButton();
 });
 
-document.getElementById('btn-viewer-share').addEventListener('click', async () => {
+// Every export path funnels through here so the history stays complete
+// however the file left the app.
+async function exportCurrentPhoto(action, formatKey) {
   const record = await getPhoto(currentViewerPhotoId);
-  if (record) await shareBlob(record.blob, record.name);
-});
-document.getElementById('btn-viewer-download').addEventListener('click', async () => {
-  const record = await getPhoto(currentViewerPhotoId);
-  if (record) await downloadBlob(record.blob, record.name);
-});
+  if (!record) return;
+  let blob = record.blob;
+  if (formatKey === 'html') {
+    viewerExportStatus.textContent = 'Préparation du fichier…';
+    viewerExportStatus.classList.remove('hidden');
+    try {
+      blob = await buildStandaloneViewer(record.blob, record.name);
+    } catch (err) {
+      viewerExportStatus.classList.add('hidden');
+      alert("Impossible de préparer la page web : " + (err && err.message ? err.message : 'erreur inconnue'));
+      return;
+    }
+    viewerExportStatus.classList.add('hidden');
+  }
+  const result = action === 'share'
+    ? await shareBlob(blob, record.name, formatKey)
+    : await downloadBlob(blob, record.name, formatKey);
+  if (result) {
+    await recordExport(currentViewerPhotoId, result);
+    showViewerExportInfo();
+  }
+}
+
+document.getElementById('btn-viewer-share').addEventListener('click', () => exportCurrentPhoto('share', 'jpg'));
+document.getElementById('btn-viewer-download').addEventListener('click', () => exportCurrentPhoto('download', 'jpg'));
+document.getElementById('btn-viewer-web').addEventListener('click', () => exportCurrentPhoto('share', 'html'));
 document.getElementById('btn-viewer-rename').addEventListener('click', async () => {
   const record = await getPhoto(currentViewerPhotoId);
   if (!record) return;
