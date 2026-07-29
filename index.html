@@ -22,7 +22,92 @@
     <button id="btn-new-capture" class="btn btn-primary btn-big">📷 Nouvelle capture 360°</button>
     <button id="btn-gallery" class="btn btn-secondary btn-big">🖼️ Mes photos 360</button>
     <button id="btn-settings" class="btn btn-ghost">⚙️ Réglages</button>
+    <button id="btn-help" class="btn btn-ghost">ℹ️ Comment bien photographier ?</button>
     <p class="hint" id="home-hint"></p>
+  </div>
+</section>
+
+<!-- ===================== ONBOARDING TUTORIAL ===================== -->
+<section id="screen-onboarding" class="screen">
+  <header class="topbar onboarding-topbar">
+    <div class="spacer"></div>
+    <button class="btn-icon" id="btn-onboarding-close">✕</button>
+  </header>
+  <div class="onboarding-slides">
+    <div class="onboarding-slide active" data-slide="0">
+      <div class="onboarding-illustration">
+        <svg viewBox="0 0 240 220" xmlns="http://www.w3.org/2000/svg">
+          <path d="M60 50 L180 50 L180 150 L60 150 Z" fill="none" stroke="#12e1ff" stroke-width="3"/>
+          <path d="M60 50 L20 30 M60 150 L20 190 M180 50 L220 30 M180 150 L220 190" fill="none" stroke="#12e1ff" stroke-width="3" stroke-linecap="round"/>
+          <path d="M20 30 L20 190 M220 30 L220 190" fill="none" stroke="#12e1ff" stroke-width="3" stroke-linecap="round"/>
+          <rect x="75" y="62" width="34" height="20" rx="2" fill="none" stroke="#12e1ff" stroke-width="2"/>
+          <circle cx="150" cy="72" r="13" fill="none" stroke="#12e1ff" stroke-width="2"/>
+          <circle cx="120" cy="170" r="9" fill="#12e1ff"/>
+          <path d="M120 179 L120 200" stroke="#12e1ff" stroke-width="4" stroke-linecap="round"/>
+          <path d="M120 200 L108 216 M120 200 L132 216" stroke="#12e1ff" stroke-width="4" stroke-linecap="round"/>
+          <ellipse cx="120" cy="213" rx="48" ry="12" fill="none" stroke="#ffffff" stroke-width="2" stroke-dasharray="5 5"/>
+        </svg>
+      </div>
+      <p class="onboarding-text">Installe-toi au centre de la pièce, à environ 1 mètre des meubles et des murs.</p>
+    </div>
+    <div class="onboarding-slide" data-slide="1">
+      <div class="onboarding-illustration">
+        <svg viewBox="0 0 240 220" xmlns="http://www.w3.org/2000/svg">
+          <line x1="30" y1="70" x2="210" y2="70" stroke="#ffffff" stroke-width="2" stroke-dasharray="5 5"/>
+          <circle cx="120" cy="70" r="16" fill="none" stroke="#12e1ff" stroke-width="3"/>
+          <path d="M120 86 L120 170" stroke="#12e1ff" stroke-width="4" stroke-linecap="round"/>
+          <path d="M120 170 L106 205 M120 170 L134 205" stroke="#12e1ff" stroke-width="4" stroke-linecap="round"/>
+          <path d="M120 105 L95 130" stroke="#12e1ff" stroke-width="4" stroke-linecap="round"/>
+          <path d="M120 105 L160 90" stroke="#12e1ff" stroke-width="4" stroke-linecap="round"/>
+          <rect x="158" y="58" width="22" height="38" rx="4" fill="none" stroke="#12e1ff" stroke-width="3"/>
+          <circle cx="169" cy="90" r="2" fill="#12e1ff"/>
+        </svg>
+      </div>
+      <p class="onboarding-text">Tiens le téléphone à hauteur des yeux pour bien voir le viseur à l'écran — pas contre toi, tu dois pouvoir suivre le cadre bleu.</p>
+    </div>
+    <div class="onboarding-slide" data-slide="2">
+      <div class="onboarding-illustration">
+        <svg viewBox="0 0 240 220" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="120" cy="130" r="70" fill="none" stroke="#ffffff" stroke-width="2" stroke-dasharray="6 6"/>
+          <path d="M186 100 L197 111 L182 116" fill="none" stroke="#12e1ff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          <g fill="none" stroke="#12e1ff" stroke-width="2">
+            <rect x="112" y="52" width="16" height="20" rx="2"/>
+            <rect x="176" y="90" width="16" height="20" rx="2" transform="rotate(60 184 100)"/>
+            <rect x="176" y="150" width="16" height="20" rx="2" transform="rotate(120 184 160)"/>
+            <rect x="48" y="150" width="16" height="20" rx="2" transform="rotate(-120 56 160)"/>
+            <rect x="48" y="90" width="16" height="20" rx="2" transform="rotate(-60 56 100)"/>
+          </g>
+          <circle cx="120" cy="122" r="9" fill="#12e1ff"/>
+          <path d="M120 131 L120 152" stroke="#12e1ff" stroke-width="4" stroke-linecap="round"/>
+          <path d="M120 152 L108 172 M120 152 L132 172" stroke="#12e1ff" stroke-width="4" stroke-linecap="round"/>
+          <path d="M112 138 L96 128 M128 138 L144 128" stroke="#12e1ff" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <p class="onboarding-text">Plante tes pieds et pivote sur toi-même sans te déplacer, en suivant le cadre bleu à chaque photo.</p>
+    </div>
+    <div class="onboarding-slide" data-slide="3">
+      <div class="onboarding-illustration">
+        <svg viewBox="0 0 240 220" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="90" cy="70" r="14" fill="none" stroke="#12e1ff" stroke-width="3"/>
+          <path d="M90 84 L90 160" stroke="#12e1ff" stroke-width="4" stroke-linecap="round"/>
+          <path d="M90 160 L78 195 M90 160 L102 195" stroke="#12e1ff" stroke-width="4" stroke-linecap="round"/>
+          <path d="M90 100 L120 120" stroke="#12e1ff" stroke-width="4" stroke-linecap="round"/>
+          <rect x="118" y="112" width="34" height="20" rx="4" fill="none" stroke="#12e1ff" stroke-width="3" transform="rotate(20 135 122)"/>
+          <path d="M150 132 Q170 165 175 195" fill="none" stroke="#ffffff" stroke-width="2" stroke-dasharray="5 5"/>
+          <ellipse cx="178" cy="200" rx="16" ry="6" fill="none" stroke="#12e1ff" stroke-width="2"/>
+          <path d="M150 110 Q175 70 208 56" fill="none" stroke="#ffffff" stroke-width="2" stroke-dasharray="5 5"/>
+          <path d="M198 49 L209 56 L203 67" fill="none" stroke="#12e1ff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <p class="onboarding-text">Pour le sol et le plafond, incline doucement le téléphone vers le bas ou le haut — garde toujours l'écran visible pour viser la cible.</p>
+    </div>
+  </div>
+  <div class="onboarding-dots" id="onboarding-dots">
+    <span class="dot active"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+  </div>
+  <div class="btn-row onboarding-nav">
+    <button id="btn-onboarding-skip" class="btn btn-light">Passer</button>
+    <button id="btn-onboarding-next" class="btn btn-primary">Suivant</button>
   </div>
 </section>
 
@@ -87,6 +172,10 @@
       <button id="btn-preview-share" class="btn btn-secondary">✉️ Envoyer par email / Partager</button>
       <button id="btn-preview-download" class="btn btn-secondary">⬇️ Télécharger le JPG</button>
     </div>
+    <p class="hint">"Partager" ouvre le sélecteur Android : toutes tes applications installées
+      capables de recevoir une image (WhatsApp, Gmail, Infomaniak Mail, K-9 Mail...) y
+      apparaissent automatiquement. "Télécharger" te laisse choisir l'emplacement
+      (téléphone, carte SD...) et le nom du fichier si ton navigateur le permet.</p>
     <button id="btn-preview-discard" class="btn btn-ghost">🗑️ Recommencer cette capture</button>
   </div>
 </section>
@@ -110,10 +199,15 @@
     <h1 id="viewer-title">Photo 360</h1>
   </header>
   <div id="viewer-pannellum" class="pannellum-box pannellum-box-full"></div>
-  <div class="btn-row viewer-actions">
-    <button id="btn-viewer-share" class="btn btn-secondary">✉️ Envoyer par email / Partager</button>
-    <button id="btn-viewer-rename" class="btn btn-ghost">✏️ Renommer</button>
-    <button id="btn-viewer-delete" class="btn btn-ghost btn-danger">🗑️ Supprimer</button>
+  <div class="viewer-actions">
+    <div class="btn-row">
+      <button id="btn-viewer-share" class="btn btn-secondary">✉️ Envoyer par email / Partager</button>
+      <button id="btn-viewer-download" class="btn btn-secondary">⬇️ Télécharger</button>
+    </div>
+    <div class="btn-row">
+      <button id="btn-viewer-rename" class="btn btn-ghost">✏️ Renommer</button>
+      <button id="btn-viewer-delete" class="btn btn-ghost btn-danger">🗑️ Supprimer</button>
+    </div>
   </div>
 </section>
 

@@ -1,127 +1,83 @@
 # Photo 360 Capture
 
-Application web (PWA) privée pour prendre une série de photos guidées avec
-ton smartphone Android et les assembler automatiquement en une seule image
+Application web (PWA) pour prendre une série de photos guidées avec ton
+smartphone Android et les assembler automatiquement en une seule image
 360° équirectangulaire au format JPG, directement exploitable par le widget
 Grist Pannellum. Tout tourne dans le navigateur, sans compte ni abonnement.
 
-Ce dépôt est **privé** : lui seul (pas de GitHub Pages) contient le code.
-Ne le rends jamais public si tu veux garder l'outil pour toi.
+## Utilisation
 
-## Pourquoi il ne suffit pas d'ouvrir le fichier directement
+Ouvre **`https://bigorneau15652.github.io/android/`** dans Chrome sur ton
+téléphone, autorise l'accès à la caméra et aux capteurs de mouvement quand
+Chrome le demande, puis dans le menu Chrome (⋮) → **Ajouter à l'écran
+d'accueil** pour obtenir une icône comme une vraie application.
+
+Le dépôt GitHub est **public** (nécessaire pour que GitHub Pages héberge
+l'appli gratuitement) — c'est le code source de l'outil qui est visible,
+jamais tes photos : celles-ci restent uniquement sur ton téléphone (voir
+"Confidentialité" plus bas).
+
+### Pourquoi pas en ouvrant le fichier directement
 
 Android/Chrome bloque l'accès à la caméra et aux capteurs d'orientation si
 la page n'est pas chargée depuis une adresse **sécurisée** (`https://...`)
-ou **locale** (`http://localhost:...`). Ouvrir `index.html` directement
-depuis le stockage du téléphone (`file://...`) ne fonctionnera pas — ce
-n'est pas un bug de l'appli, c'est une règle de sécurité du navigateur.
+ou **locale** (`http://localhost:...`) — ouvrir `index.html` directement
+depuis le stockage du téléphone (`file://...`) ne fonctionnera pas. C'est
+pour ça qu'il faut passer par l'URL GitHub Pages ci-dessus plutôt que
+manipuler les fichiers sur le téléphone.
 
-Comme le dépôt reste privé (pas de GitHub Pages), la solution la plus simple
-est de faire tourner un tout petit serveur web **directement sur le
-téléphone**, via l'application **Termux**, puis d'ouvrir
-`http://localhost:8080` dans Chrome sur ce même téléphone. C'est gratuit,
-ça ne nécessite aucune connexion internet une fois l'appli installée, et
-rien ne sort de ton téléphone.
+### Alternative sans passer par GitHub Pages (hors-ligne, via Termux)
 
-## Installation (une seule fois)
-
-1. **Installe Termux** depuis F-Droid (la version Play Store est obsolète
-   et ne fonctionne plus bien) : https://f-droid.org/packages/com.termux/
-   → installe d'abord F-Droid, puis Termux depuis F-Droid.
-
-2. Ouvre Termux et installe Python :
-   ```
-   pkg update
-   pkg install python
-   ```
-
-3. Récupère les fichiers de l'appli. Le plus simple, **sans rien installer
-   de plus** :
-   - Sur le téléphone, ouvre `https://github.com/Bigorneau15652/android`
-     dans Chrome (connecté à ton compte GitHub).
-   - Bouton vert **Code** → **Download ZIP**. Le fichier atterrit dans le
-     dossier *Téléchargements*.
-   - Dans Termux, autorise l'accès au stockage puis dézippe :
-     ```
-     termux-setup-storage
-     pkg install unzip
-     cd ~/storage/downloads
-     unzip android-main.zip -d ~/photo360
-     ```
-   - Les fichiers de l'appli se trouvent alors dans `~/photo360/android-main`.
-
-   *(Alternative pour les mises à jour ultérieures : `git clone` avec un
-   jeton d'accès personnel GitHub à la place du mot de passe — voir la
-   section Mises à jour plus bas.)*
-
-4. Lance le serveur local :
-   ```
-   cd ~/photo360/android-main
-   python -m http.server 8080
-   ```
-   Laisse ce terminal Termux ouvert/actif en arrière-plan.
-
-5. Ouvre Chrome sur le téléphone et va sur **`http://localhost:8080`**.
-   Autorise l'accès à la caméra et aux capteurs de mouvement quand Chrome
-   le demande.
-
-6. Dans le menu Chrome (⋮) → **Ajouter à l'écran d'accueil**. Tu obtiens
-   une icône comme une vraie application. Elle rouvrira toujours
-   `localhost:8080` — il faut donc que le serveur Termux tourne pour que
-   ça marche (voir "Utilisation au quotidien" ci-dessous).
-
-## Utilisation au quotidien
-
-À chaque fois que tu veux utiliser l'appli :
-
-1. Ouvre Termux, lance :
-   ```
-   cd ~/photo360/android-main
-   python -m http.server 8080
-   ```
-2. Ouvre l'icône *Photo360* installée sur ton écran d'accueil (ou
-   `http://localhost:8080` dans Chrome).
-
-Astuce avancée : le paquet `termux-boot` (Termux:Boot depuis F-Droid)
-permet de lancer automatiquement le serveur au démarrage du téléphone, si
-tu veux éviter cette étape manuelle.
-
-## Mises à jour
-
-Quand le code de l'appli est modifié sur GitHub, retélécharge le ZIP
-(étape 3) dans un nouveau dossier, ou utilise `git` :
+Si tu préfères ne rien avoir en ligne, tu peux faire tourner l'appli
+localement avec **Termux** (F-Droid) :
 ```
-pkg install git
-cd ~
-git clone https://github.com/Bigorneau15652/android.git photo360-git
+pkg install python
 ```
-Git te demandera un identifiant GitHub + un **jeton d'accès personnel**
-(Personal Access Token, à créer sur github.com → Settings → Developer
-settings → Personal access tokens) à la place du mot de passe, car GitHub
-n'accepte plus les mots de passe classiques en ligne de commande.
+puis, après avoir téléchargé le code (bouton **Code → Download ZIP** sur la
+page GitHub du dépôt, ou `git clone`), lance depuis le dossier de l'appli :
+```
+python -m http.server 8080
+```
+et ouvre `http://localhost:8080` dans Chrome sur le même téléphone. Il
+faudra relancer cette commande à chaque utilisation (ou installer
+`Termux:Boot` pour l'automatiser au démarrage).
 
 ## Comment ça marche
 
+0. À la toute première utilisation, un court tutoriel en français
+   (illustré, avec Suivant/Passer) explique comment bien tenir le
+   téléphone pour obtenir la meilleure qualité. Il est ré-accessible à tout
+   moment depuis l'accueil via **"ℹ️ Comment bien photographier ?"**.
 1. **Nouvelle capture 360°** → l'appli demande la caméra et le gyroscope,
-   puis affiche le flux caméra avec un viseur circulaire.
+   puis affiche le flux caméra avec un viseur : un cadre bleu percé d'un
+   trou à viser avec la mire blanche fixe au centre de l'écran.
 2. Elle te guide vers une série de cibles réparties sur la sphère (par
-   défaut : 3 rangées + zénith/nadir). Tourne sur toi-même lentement, en
-   tenant le téléphone bien vertical et droit (une barre en bas de l'écran
-   devient verte quand il est de niveau).
-3. Quand le viseur devient **vert**, la photo est prise automatiquement
-   (tu peux désactiver l'automatique dans Réglages et appuyer sur 📸
+   défaut : 3 rangées + zénith/nadir), en terminant chaque rangée avant de
+   passer à la suivante. Pivote sur toi-même lentement, en tenant le
+   téléphone à hauteur des yeux et bien droit.
+3. Quand le cadre devient **blanc**, la photo est prise automatiquement (tu
+   peux désactiver l'automatique dans Réglages et appuyer sur 📸
    toi-même).
 4. Une fois toutes les cibles couvertes (ou en appuyant sur *Terminer
    maintenant*), l'appli assemble une image équirectangulaire unique et te
    montre un aperçu 360° interactif.
 5. **Enregistrer** la garde dans *Mes photos 360* (stockée uniquement sur
-   ce téléphone, dans le navigateur). **Envoyer par email / Partager**
-   ouvre le sélecteur de partage Android (Gmail, Mail, etc.) avec le JPG en
-   pièce jointe. **Télécharger le JPG** l'enregistre dans le dossier
-   Téléchargements du téléphone.
-6. **Mes photos 360** permet de revoir, renommer, supprimer ou renvoyer par
-   email n'importe quelle capture précédente, à tout moment, même hors
-   ligne.
+   ce téléphone, dans le navigateur — jamais envoyée nulle part).
+   **Envoyer par email / Partager** ouvre le sélecteur de partage natif
+   d'Android : toutes tes applications installées capables de recevoir une
+   image (WhatsApp, Gmail, Infomaniak Mail, K-9 Mail...) y apparaissent
+   automatiquement, sans réglage à faire dans l'appli. **Télécharger le
+   JPG** enregistre le fichier — si ton navigateur le permet, un sélecteur
+   s'ouvre pour choisir toi-même le dossier (mémoire interne, carte SD...)
+   et modifier le nom de fichier ; sinon il part directement dans
+   *Téléchargements*.
+6. **Mes photos 360** permet de revoir, renommer, supprimer, télécharger ou
+   renvoyer par email n'importe quelle capture précédente, à tout moment,
+   même hors ligne.
+
+Le fichier produit est un **JPG classique** (image équirectangulaire) :
+c'est exactement le format attendu par le widget Grist Pannellum que tu
+utilises déjà — tu peux l'attacher directement, sans conversion.
 
 ## Limites à connaître
 
@@ -144,9 +100,11 @@ n'accepte plus les mots de passe classiques en ligne de commande.
 - Aucune donnée ne quitte ton téléphone : pas de compte, pas de serveur
   distant, pas d'analytics. Les photos 360 sont stockées localement dans le
   navigateur (IndexedDB) et ne sont envoyées nulle part sauf si tu choisis
-  toi-même *Envoyer par email / Partager*.
-- Le dépôt GitHub est privé : garde-le ainsi si tu veux que l'outil reste
-  strictement personnel.
+  toi-même *Envoyer par email / Partager* ou *Télécharger*.
+- Le dépôt GitHub est public (nécessaire pour l'hébergement gratuit via
+  GitHub Pages) : seul le **code source** de l'outil est visible par
+  quiconque le consulte sur GitHub, jamais tes photos ni les données de ton
+  compte Grist.
 
 ## Licence des composants tiers
 

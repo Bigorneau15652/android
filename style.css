@@ -264,6 +264,50 @@ select, input[type=text], input[type=range] {
 .pannellum-box-full { height: calc(100vh - 118px); border-radius: 0; margin-bottom: 0; }
 .viewer-actions { padding: 10px 12px; }
 
+/* ---------- onboarding tutorial ---------- */
+#screen-onboarding {
+  background: var(--navy);
+  color: #ffffff;
+}
+.onboarding-topbar .spacer { flex: 1; }
+.onboarding-slides {
+  position: relative;
+  min-height: 50vh;
+  padding: 10px 20px 0;
+}
+.onboarding-slide { display: none; text-align: center; }
+.onboarding-slide.active { display: block; }
+.onboarding-illustration {
+  width: 100%;
+  max-width: 260px;
+  margin: 10px auto 24px;
+}
+.onboarding-illustration svg { width: 100%; height: auto; display: block; }
+.onboarding-text {
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: #ffffff;
+  max-width: 420px;
+  margin: 0 auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.onboarding-dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 24px 0;
+}
+.onboarding-dots .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.3);
+}
+.onboarding-dots .dot.active { background: #12e1ff; }
+.onboarding-nav { padding: 0 20px calc(20px + env(safe-area-inset-bottom)); }
+
 @media (min-width: 700px) {
   .content { padding: 24px; }
 }

@@ -72,7 +72,46 @@ if (!window.isSecureContext) {
 }
 
 document.getElementById('btn-gallery').addEventListener('click', openGallery);
-document.getElementById('btn-new-capture').addEventListener('click', startPrep);
+document.getElementById('btn-new-capture').addEventListener('click', () => {
+  if (!localStorage.getItem(ONBOARDING_SEEN_KEY)) openOnboarding(startPrep);
+  else startPrep();
+});
+
+// ---------------- onboarding tutorial ----------------
+const ONBOARDING_SEEN_KEY = 'photo360-onboarding-seen';
+const onboardingSlides = document.querySelectorAll('.onboarding-slide');
+const onboardingDots = document.querySelectorAll('#onboarding-dots .dot');
+const onboardingNextBtn = document.getElementById('btn-onboarding-next');
+let onboardingIndex = 0;
+let onboardingReturnAction = null; // called instead of going home when the tutorial closes
+
+function showOnboardingSlide(i) {
+  onboardingIndex = i;
+  onboardingSlides.forEach((el, idx) => el.classList.toggle('active', idx === i));
+  onboardingDots.forEach((el, idx) => el.classList.toggle('active', idx === i));
+  onboardingNextBtn.textContent = i === onboardingSlides.length - 1 ? 'Commencer' : 'Suivant';
+}
+
+function openOnboarding(returnAction) {
+  onboardingReturnAction = returnAction || null;
+  showOnboardingSlide(0);
+  showScreen('screen-onboarding');
+}
+
+function closeOnboarding() {
+  localStorage.setItem(ONBOARDING_SEEN_KEY, '1');
+  const action = onboardingReturnAction;
+  onboardingReturnAction = null;
+  if (action) action(); else showScreen('screen-home');
+}
+
+onboardingNextBtn.addEventListener('click', () => {
+  if (onboardingIndex < onboardingSlides.length - 1) showOnboardingSlide(onboardingIndex + 1);
+  else closeOnboarding();
+});
+document.getElementById('btn-onboarding-skip').addEventListener('click', closeOnboarding);
+document.getElementById('btn-onboarding-close').addEventListener('click', closeOnboarding);
+document.getElementById('btn-help').addEventListener('click', () => openOnboarding(null));
 
 // ---------------- prep (permissions) ----------------
 const prepStatus = document.getElementById('prep-status');
@@ -273,20 +312,47 @@ async function shareBlob(blob, name) {
       if (err && err.name === 'AbortError') return; // user cancelled
     }
   }
-  downloadBlob(blob, name);
-  alert("Le partage direct n'est pas disponible sur ce navigateur : le fichier a été téléchargé. " +
-    'Ouvre ton application email et joins-le manuellement depuis le dossier Téléchargements.');
+  const saved = await downloadBlob(blob, name);
+  if (saved) {
+    alert("Le partage direct n'est pas disponible sur ce navigateur : le fichier a été enregistré. " +
+      'Ouvre ton application email ou de messagerie et joins-le manuellement.');
+  }
 }
 
-function downloadBlob(blob, name) {
+// Enregistre le blob sur le téléphone. Quand le navigateur le permet
+// (File System Access API), ouvre le sélecteur natif Android : l'utilisateur
+// choisit lui-même le dossier (stockage interne, carte SD, Drive...) et peut
+// modifier le nom de fichier proposé avant de valider. Sinon, retombe sur le
+// téléchargement classique du navigateur (toujours dans "Téléchargements",
+// nom de fichier imposé). Renvoie false si l'utilisateur annule le
+// sélecteur (pas de fallback forcé dans ce cas - il a choisi d'annuler).
+async function downloadBlob(blob, name) {
+  const filename = `${sanitizeFilename(name)}.jpg`;
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: 'Image JPEG', accept: { 'image/jpeg': ['.jpg', '.jpeg'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return true;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return false;
+      // Any other error (partial/older browser support): fall through to
+      // the classic download below.
+    }
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${sanitizeFilename(name)}.jpg`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return true;
 }
 
 function sanitizeFilename(name) {
@@ -333,6 +399,10 @@ async function openViewer(id) {
 document.getElementById('btn-viewer-share').addEventListener('click', async () => {
   const record = await getPhoto(currentViewerPhotoId);
   if (record) await shareBlob(record.blob, record.name);
+});
+document.getElementById('btn-viewer-download').addEventListener('click', async () => {
+  const record = await getPhoto(currentViewerPhotoId);
+  if (record) await downloadBlob(record.blob, record.name);
 });
 document.getElementById('btn-viewer-rename').addEventListener('click', async () => {
   const record = await getPhoto(currentViewerPhotoId);
