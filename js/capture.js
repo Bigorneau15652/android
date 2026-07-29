@@ -65,7 +65,12 @@ export class CaptureController {
     this.octx = overlayCanvas.getContext('2d');
     this.tracker = tracker;
     this.targets = targets.map((t) => ({ ...t, done: false }));
-    this.currentIndex = 0;
+    // -1 = "no target picked yet", not "targets[0]" - _advanceToNextPending
+    // uses this to know there's no real "current row" preference on the
+    // very first pick, so it picks whichever target is actually nearest to
+    // the camera's starting orientation instead of defaulting to row 0 of
+    // the grid array (which happens to be the top pitch row).
+    this.currentIndex = -1;
     this.settings = settings; // { hFov, tolerance, autoCapture, captureW, captureH, holdMs, rollLimit }
     this.vFov = verticalFovFromHorizontal(settings.hFov, settings.captureW, settings.captureH);
     this.accumulator = new EquirectAccumulator(outputWidth, outputHeight);
@@ -254,25 +259,33 @@ export class CaptureController {
       }
     } else {
       // Off-screen: draw a directional arrow at the edge pointing toward
-      // target. Beyond ~87 degrees of separation the gnomonic projection
-      // is undefined (proj.visible is false) - fall back to a plain
-      // yaw/pitch bearing so the arrow still points up/down as well as
-      // left/right instead of collapsing to a left-right-only hint, which
-      // was why tilting up for the top row/zenith shots felt like the
-      // guide "lost" the target.
-      let angle;
+      // target. Worked entirely in canvas pixel space (+x = right, +y =
+      // down) to avoid the math-convention/screen-convention sign mixing
+      // that previously made the arrow point vertically backwards (it used
+      // atan2(-ny, nx) for the angle but then *also* negated sin(angle)
+      // when placing it on screen, double-flipping the vertical sign).
+      //
+      // Beyond ~87 degrees of separation the gnomonic projection is
+      // undefined (proj.visible is false) - fall back to a plain yaw/pitch
+      // bearing so the arrow still points up/down as well as left/right.
+      let dx, dy;
       if (proj.visible) {
-        angle = Math.atan2(-proj.ny, proj.nx);
+        dx = proj.nx;
+        dy = -proj.ny; // +ny (target above) -> screen up -> negative canvas dy
       } else {
-        const dy = angleDiff(target.yaw, this.tracker.yaw);
-        const dp = target.pitch - this.tracker.pitch;
-        angle = Math.atan2(dp, dy);
+        dx = angleDiff(target.yaw, this.tracker.yaw);
+        dy = -(target.pitch - this.tracker.pitch);
       }
-      const rx = w / 2 + Math.cos(angle) * (w / 2 - 60);
-      const ry = h / 2 - Math.sin(angle) * (h / 2 - 60);
+      const mag = Math.hypot(dx, dy) || 1;
+      const ux = dx / mag, uy = dy / mag;
+      const R = w / 2 - 60;
+      const rx = w / 2 + ux * R;
+      const ry = h / 2 + uy * R;
+      const rot = Math.atan2(uy, ux); // canvas rotate: local +x maps to (cos,sin) = (ux,uy)
+
       ctx.save();
       ctx.translate(rx, ry);
-      ctx.rotate(-angle);
+      ctx.rotate(rot);
       ctx.beginPath();
       ctx.moveTo(20, 0); ctx.lineTo(-14, 14); ctx.lineTo(-14, -14);
       ctx.closePath();
@@ -319,10 +332,17 @@ export class CaptureController {
     if (this.currentIndex < 0) return false;
     const target = this.targets[this.currentIndex];
     const yawC = this.tracker.yaw, pitchC = this.tracker.pitch;
+    // Snapshot the actual measured basis vectors (not just yaw/pitch/roll
+    // scalars) so the stitcher can compensate for any roll exactly - see
+    // orientation.js and stitch.js for why re-deriving a rotation from the
+    // roll angle alone isn't reliable in this pose.
+    const rightVec = this.tracker.rightVec.slice();
+    const upVec = this.tracker.upVec.slice();
+    const forwardVec = this.tracker.forwardVec.slice();
 
     const { captureW: cw, captureH: ch } = this.settings;
     this._shotCtx.drawImage(this.video, 0, 0, cw, ch);
-    this.accumulator.addShot(this._shotCanvas, yawC, pitchC, this.settings.hFov, this.vFov);
+    this.accumulator.addShot(this._shotCanvas, yawC, pitchC, rightVec, upVec, forwardVec, this.settings.hFov, this.vFov);
 
     target.done = true;
     if (navigator.vibrate) navigator.vibrate(40);

@@ -1,14 +1,15 @@
 // Equirectangular accumulation buffer: each captured shot is reprojected
 // with a gnomonic (rectilinear/pinhole) forward projection and blended in
-// with a soft edge feather, based on its *measured* yaw/pitch at capture
-// time (roll assumed ~0 - the capture screen enforces that visually).
+// with a soft edge feather, based on its *measured* camera orientation at
+// capture time - full 3-axis (yaw/pitch/roll), not just yaw/pitch.
 //
 // This is intentionally the "simple" tier from CLAUDE.md decisions: no
 // feature matching / no true multi-band blending, just weighted averaging
 // of overlapping shots, which is enough to avoid hard seams while staying
-// small and fast enough to run on a phone in the browser.
-
-import { angleDiff } from './orientation.js';
+// small and fast enough to run on a phone in the browser. Roll *is*
+// compensated (see orientation.js) since ignoring it was leaving shots
+// pasted in slightly rotated relative to their neighbours, which showed up
+// as doubled/tripled content in overlap areas after stitching.
 
 const d2r = Math.PI / 180;
 
@@ -21,9 +22,12 @@ export class EquirectAccumulator {
   }
 
   // shotCanvas: HTMLCanvasElement/OffscreenCanvas already holding the
-  // captured frame. yawC/pitchC in degrees, hFovDeg/vFovDeg the assumed
-  // camera field of view for that frame's aspect ratio.
-  addShot(shotCanvas, yawC, pitchC, hFovDeg, vFovDeg) {
+  // captured frame. yawC/pitchC (degrees) are only used to size the
+  // scan bounding box; rightVec/upVec/forwardVec are the camera's actual
+  // measured basis vectors (unit vectors in East/North/Up world
+  // coordinates, see orientation.js) used for the precise per-pixel
+  // projection, so any roll at capture time is correctly accounted for.
+  addShot(shotCanvas, yawC, pitchC, rightVec, upVec, forwardVec, hFovDeg, vFovDeg) {
     const sw = shotCanvas.width, sh = shotCanvas.height;
     const sctx = shotCanvas.getContext('2d');
     const srcData = sctx.getImageData(0, 0, sw, sh).data;
@@ -31,13 +35,13 @@ export class EquirectAccumulator {
     const tanHalfH = Math.tan((hFovDeg / 2) * d2r);
     const tanHalfV = Math.tan((vFovDeg / 2) * d2r);
     const phi1 = pitchC * d2r;
-    const sinPhi1 = Math.sin(phi1), cosPhi1 = Math.cos(phi1);
 
     // Bounding box in equirect space, with generous margin for pole
-    // distortion where a fixed-FOV cone covers a much wider longitude range.
-    const marginLon = Math.min(179, (hFovDeg / 2) / Math.max(0.15, Math.cos(phi1)) + 5);
-    const marginLat = vFovDeg / 2 + 5;
-    const lonMin = yawC - marginLon, lonMax = yawC + marginLon;
+    // distortion (where a fixed-FOV cone covers a much wider longitude
+    // range) and for the frame's own roll (a tilted rectangle's bounding
+    // box is bigger than an axis-aligned one).
+    const marginLon = Math.min(179, (hFovDeg / 2) / Math.max(0.15, Math.cos(phi1)) + 15);
+    const marginLat = vFovDeg / 2 + 15;
     const latMin = Math.max(-90, pitchC - marginLat);
     const latMax = Math.min(90, pitchC + marginLat);
 
@@ -51,17 +55,23 @@ export class EquirectAccumulator {
       for (let colOffset = -Math.ceil((marginLon / 360) * W); colOffset <= Math.ceil((marginLon / 360) * W); colOffset++) {
         const colBase = Math.round((yawC / 360) * W) + colOffset;
         let col = colBase % W; if (col < 0) col += W;
-        const lambda = (col / W) * 360;
-        const dLambda = angleDiff(lambda, yawC) * d2r;
+        const lambdaRad = (col / W) * 360 * d2r;
 
-        const cosc = sinPhi1 * sinPhi + cosPhi1 * cosPhi * Math.cos(dLambda);
-        if (cosc <= 0.15) continue; // behind or too far off-axis
+        // Destination direction as a unit vector in world (East,North,Up).
+        const dx = cosPhi * Math.sin(lambdaRad);
+        const dy = cosPhi * Math.cos(lambdaRad);
+        const dz = sinPhi;
 
-        const x = (cosPhi * Math.sin(dLambda)) / cosc;
-        const y = (cosPhi1 * sinPhi - sinPhi1 * cosPhi * Math.cos(dLambda)) / cosc;
+        // Project into the camera's own frame via simple dot products with
+        // its measured basis vectors - this is exact for any roll, unlike
+        // the previous yaw/pitch-only trig formula which assumed roll=0.
+        const Z = dx * forwardVec[0] + dy * forwardVec[1] + dz * forwardVec[2];
+        if (Z <= 0.15) continue; // behind or too far off-axis
+        const X = dx * rightVec[0] + dy * rightVec[1] + dz * rightVec[2];
+        const Y = dx * upVec[0] + dy * upVec[1] + dz * upVec[2];
 
-        const nx = x / tanHalfH; // -1..1 across frame width
-        const ny = y / tanHalfV; // -1..1 across frame height
+        const nx = (X / Z) / tanHalfH; // -1..1 across frame width
+        const ny = (Y / Z) / tanHalfV; // -1..1 across frame height
         if (nx < -1 || nx > 1 || ny < -1 || ny > 1) continue;
 
         const px = (nx * 0.5 + 0.5) * (sw - 1);
