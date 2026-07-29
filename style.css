@@ -1,0 +1,269 @@
+:root {
+  color-scheme: light;
+  --navy: #14213d;
+  --navy-2: #1c2c52;
+  --blue: #2f6fed;
+  --blue-dark: #1e4fc0;
+  --green: #1f8a4c;
+  --green-bg: #e3f8ea;
+  --amber: #8a5a00;
+  --amber-bg: #fff3d6;
+  --red: #a3122b;
+  --red-bg: #fde6e9;
+  --text: #14213d;
+  --muted: #4a5570;
+  --border: #d7dceb;
+  --bg: #f5f7fb;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.screen {
+  display: none;
+  min-height: 100vh;
+  width: 100%;
+}
+.screen.active { display: block; }
+
+.topbar {
+  position: static; /* never sticky inside a host/embedded panel, see CLAUDE.md */
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--navy);
+  color: #ffffff;
+  padding: 14px 12px;
+  min-height: 52px;
+}
+.topbar h1 {
+  font-size: 17px;
+  margin: 0;
+  color: #ffffff;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.content {
+  padding: 16px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.center-content {
+  min-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 16px;
+}
+
+.home-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 40px;
+}
+
+/* ---------- buttons & form controls ---------- */
+.btn {
+  display: inline-block;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  color: var(--text);
+  cursor: pointer;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+.btn:active { transform: translateY(1px); }
+.btn-big { padding: 18px 16px; font-size: 17px; width: 100%; }
+.btn-primary { background: var(--blue); border-color: var(--blue-dark); color: #ffffff; }
+.btn-secondary { background: #eef2ff; border-color: var(--blue); color: var(--blue-dark); }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn-danger { color: var(--red); }
+.btn-icon {
+  background: rgba(255,255,255,0.12);
+  color: #ffffff;
+  border: 1px solid rgba(255,255,255,0.35);
+  border-radius: 8px;
+  font-size: 18px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.btn-light { background: #ffffff; color: var(--text); border-color: #ffffff; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+.btn-row .btn { flex: 1 1 auto; }
+
+select, input[type=text], input[type=range] {
+  background: #ffffff;
+  color: var(--text);
+}
+.select-input, .text-input {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 15px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--text);
+  margin-bottom: 14px;
+}
+.range-input { width: 100%; margin-bottom: 6px; }
+.field-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 14px 0 6px;
+}
+
+.hint {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
+/* ---------- banners: always readable, never opacity/overflow tricks ---------- */
+.banner {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin-bottom: 14px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.banner-info { background: #e3ecff; color: #163a8f; border: 1px solid #a9c2ff; }
+.banner-warning { background: var(--amber-bg); color: var(--amber); border: 1px solid #f0c980; }
+.banner-error { background: var(--red-bg); color: var(--red); border: 1px solid #f0a5b1; }
+.hidden { display: none !important; }
+
+.spinner {
+  width: 42px; height: 42px;
+  border: 4px solid var(--border);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- capture screen ---------- */
+.capture-wrap {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  background: #000;
+  overflow: hidden;
+}
+#capture-video {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+}
+#capture-overlay {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+}
+.capture-topbar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0));
+}
+.capture-progress {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+  background: rgba(0,0,0,0.45);
+  padding: 6px 12px;
+  border-radius: 20px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.capture-banner {
+  position: absolute;
+  top: 64px; left: 12px; right: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--amber-bg);
+  color: var(--amber);
+  border: 1px solid #f0c980;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.capture-bottombar {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  display: flex;
+  gap: 10px;
+  padding: 14px 12px calc(14px + env(safe-area-inset-bottom));
+  background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.6));
+}
+.capture-bottombar .btn { flex: 1 1 auto; }
+
+/* ---------- gallery ---------- */
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+.gallery-item {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+}
+.gallery-item img { display: block; width: 100%; height: 90px; object-fit: cover; }
+.gallery-item .gi-name {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- pannellum containers ---------- */
+.pannellum-box {
+  width: 100%;
+  height: 46vh;
+  min-height: 260px;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 14px;
+  background: #000;
+}
+.pannellum-box-full { height: calc(100vh - 118px); border-radius: 0; margin-bottom: 0; }
+.viewer-actions { padding: 10px 12px; }
+
+@media (min-width: 700px) {
+  .content { padding: 24px; }
+}
