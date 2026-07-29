@@ -1,7 +1,12 @@
-// Cache-first app-shell service worker so the app keeps working offline
-// once loaded once (no runtime network calls happen otherwise: everything,
-// including Pannellum, is bundled locally).
-const CACHE = 'photo360-cache-v1';
+// Network-first app-shell service worker: always tries to fetch the latest
+// version from the network first (so code updates show up immediately
+// without needing to remember to bump a cache-buster), falling back to the
+// cached copy only when offline. Previous versions used cache-first, which
+// silently kept serving stale JS forever whenever this file's own bytes
+// hadn't changed (Chrome only re-checks a service worker when its script
+// differs byte-for-byte) - bump CACHE below only if you ever need to force
+// a hard reset, it is no longer required for ordinary updates.
+const CACHE = 'photo360-cache-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -37,6 +42,12 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
