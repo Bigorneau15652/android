@@ -13,8 +13,111 @@ import { prepareShot, verticalFovFromHorizontal } from './align.js';
 // of a 4096-wide equirect output, small enough that a dense grid stays
 // well inside a phone browser's memory budget (~1.2MB per shot).
 const STORE_W = 640, STORE_H = 480;
-
 const d2r = Math.PI / 180;
+
+// Lists the phone's rear cameras (ultra-wide / main / tele are separate
+// devices on Android). Labels are only exposed once camera permission has
+// been granted, so this is called after a stream has been opened at least
+// once; without labels we still return the devices, just numbered.
+export async function listRearCameras() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const cams = devices.filter((d) => d.kind === 'videoinput');
+  const rear = cams.filter((d) => /back|arri|rear|environment/i.test(d.label || ''));
+  const list = rear.length ? rear : cams;
+  return list.map((d, i) => ({
+    deviceId: d.deviceId,
+    label: d.label || `Objectif ${i + 1}`,
+  }));
+}
+
+// Opens a camera stream, preferring an explicitly chosen device.
+export async function openCameraStream(deviceId) {
+  const base = { width: { ideal: 1920 }, height: { ideal: 1440 } };
+  if (deviceId) {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: false, video: { ...base, deviceId: { exact: deviceId } },
+      });
+    } catch (err) {
+      // Device disappeared (lens list changes between sessions on some
+      // phones) - fall through to the default rear camera rather than
+      // failing the whole capture.
+    }
+  }
+  return navigator.mediaDevices.getUserMedia({
+    audio: false, video: { ...base, facingMode: { ideal: 'environment' } },
+  });
+}
+
+// Grabs a burst of overlapping frames while the user pans, for lens
+// calibration. Frames are taken every `stepDeg` of measured rotation, so
+// they overlap for any lens from tele to ultra-wide - we cannot assume a
+// field of view here, since measuring it is the whole point.
+//
+// The defaults cover close to a full turn on purpose. FOV is inferred from
+// how far the image content shifts for a rotation the gyro reports, so the
+// bigger the rotation actually spanned, the better that ratio is pinned
+// down; a short pan leaves the FOV weakly determined and the estimate
+// drifts towards implausibly wide values.
+export class CalibrationCapture {
+  constructor({ video, tracker, frames = 16, stepDeg = 20 }) {
+    this.video = video;
+    this.tracker = tracker;
+    this.frames = frames;
+    this.stepDeg = stepDeg;
+    this.shots = [];
+    this._running = false;
+    this._lastForward = null;
+    this._canvas = document.createElement('canvas');
+    this._canvas.width = STORE_W;
+    this._canvas.height = STORE_H;
+    this._ctx = this._canvas.getContext('2d', { willReadFrequently: true });
+    this.onFrame = null;
+    this.onDone = null;
+  }
+
+  start() {
+    this._running = true;
+    this._loop();
+  }
+  stop() { this._running = false; }
+
+  _angleFromLast() {
+    const f = this.tracker.forwardVec;
+    if (!this._lastForward || !f) return Infinity;
+    const c = Math.max(-1, Math.min(1,
+      f[0] * this._lastForward[0] + f[1] * this._lastForward[1] + f[2] * this._lastForward[2]));
+    return Math.acos(c) / d2r;
+  }
+
+  _loop() {
+    if (!this._running) return;
+    if (this._angleFromLast() >= this.stepDeg) this._grab();
+    if (this._running) requestAnimationFrame(() => this._loop());
+  }
+
+  _grab() {
+    const f = this.tracker.forwardVec;
+    if (!f) return;
+    this._ctx.drawImage(this.video, 0, 0, STORE_W, STORE_H);
+    this.shots.push({
+      imageData: this._ctx.getImageData(0, 0, STORE_W, STORE_H),
+      basis: {
+        right: this.tracker.rightVec.slice(),
+        up: this.tracker.upVec.slice(),
+        forward: this.tracker.forwardVec.slice(),
+      },
+    });
+    this._lastForward = [...f];
+    if (this.onFrame) this.onFrame(this.shots.length, this.frames);
+    if (this.shots.length >= this.frames) {
+      this._running = false;
+      if (this.onDone) this.onDone(this.shots);
+    }
+  }
+}
+
 const FLUO_BLUE = '#12e1ff';
 
 // Groups targets into the rows the on-screen mini-map draws: zenith (if
@@ -100,14 +203,7 @@ export class CaptureController {
   _emit(event, ...args) { for (const fn of this.listeners[event]) fn(...args); }
 
   async startCamera() {
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        facingMode: { ideal: 'environment' },
-        width: { ideal: 1920 },
-        height: { ideal: 1440 },
-      },
-    });
+    this.stream = await openCameraStream(this.settings.deviceId);
     this.video.srcObject = this.stream;
     await this.video.play();
   }

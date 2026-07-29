@@ -311,6 +311,112 @@ function configScore(shots, params) {
 
 const yieldToUi = () => new Promise((r) => setTimeout(r, 0));
 
+// Evaluates one lens-model candidate. Always restarts from the supplied
+// sensor orientations rather than from whatever the previous candidate
+// converged to: chaining candidates biases the search badly, because the
+// orientations bend to fit whichever FOV was tried first, that config then
+// scores best simply because it was the one fitted, and the true FOV is
+// never selected.
+async function evaluateCandidate(shots, sensorBases, candFov, candK1) {
+  restoreBases(shots, sensorBases);
+  const params = makeParams(candFov, candK1, shots[0]);
+  for (let i = 0; i < shots.length; i++) refineShotOrientation(shots, i, params, QUICK_STAGES);
+  const score = configScore(shots, params);
+  await yieldToUi();
+  return { score, hFov: candFov, k1: candK1, bases: snapshotBases(shots) };
+}
+
+// Plain NCC between two shots' greyscale buffers, pixel-for-pixel with no
+// reprojection: answers "are these the same picture?", not "do they align".
+function rawFrameCorrelation(a, b) {
+  const n = a.gray.length;
+  let sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+  for (let i = 0; i < n; i++) {
+    const x = a.gray[i], y = b.gray[i];
+    sa += x; sb += y; saa += x * x; sbb += y * y; sab += x * y;
+  }
+  const va = saa - (sa * sa) / n;
+  const vb = sbb - (sb * sb) / n;
+  if (va <= 1e-6 || vb <= 1e-6) return 1; // featureless: treat as "unchanged"
+  return (sab - (sa * sb) / n) / Math.sqrt(va * vb);
+}
+
+function sensorBasesOf(shots) {
+  return shots.map((s) => ({
+    right: [...s.baseBasis.right], up: [...s.baseBasis.up], forward: [...s.baseBasis.forward],
+  }));
+}
+
+// Measures a lens's horizontal field of view from a short set of
+// overlapping frames, without assuming anything about which lens it is.
+// Used by the in-app calibration flow so the capture grid can be sized
+// correctly *before* a real capture - important because an uncalibrated
+// guess that is too narrow leaves holes in the sphere, and one that is
+// too wide makes the user take far more photos than necessary.
+// Returns { fov, score, reason }. fov is null when the result should not
+// be trusted, with `reason` saying why, so the caller can tell the user
+// what to do differently instead of silently storing a wrong value.
+export async function calibrateFov(shots, options, onProgress) {
+  // Lower bound is deliberately not "any lens that exists": below ~35
+  // degrees a full sphere would need hundreds of shots, so such a value is
+  // far more likely to be the optimizer sliding towards a degenerate
+  // narrow-FOV solution than a lens someone is really panning with. An
+  // estimate landing on the bound is reported as a failure rather than
+  // stored.
+  const { min = 35, max = 125, minScore = 0.35 } = options || {};
+  if (shots.length < 3) return { fov: null, score: 0, reason: 'not_enough_frames' };
+
+  // Sanity check before any fitting: if consecutive frames are essentially
+  // the same picture while the sensor claims the phone turned, then the
+  // camera feed and the sensor disagree about reality (frozen preview,
+  // user not actually rotating, stuck sensor). Any FOV "measured" from
+  // that is meaningless, and it scores high enough to slip past the
+  // score threshold, so it has to be caught explicitly.
+  let staticPairs = 0, comparablePairs = 0;
+  for (let i = 0; i + 1 < shots.length; i++) {
+    const a = shots[i], b = shots[i + 1];
+    if (a.gw !== b.gw || a.gh !== b.gh) continue;
+    comparablePairs++;
+    if (rawFrameCorrelation(a, b) > 0.985) staticPairs++;
+  }
+  if (comparablePairs > 0 && staticPairs / comparablePairs > 0.5) {
+    return { fov: null, score: 0, reason: 'no_movement' };
+  }
+
+  const sensorBases = sensorBasesOf(shots);
+  let best = { score: -Infinity, hFov: null };
+
+  const scan = async (from, to, step, label) => {
+    const values = [];
+    for (let v = from; v <= to + 1e-6; v += step) values.push(Math.round(v * 10) / 10);
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i];
+      if (v < min || v > max) continue;
+      const r = await evaluateCandidate(shots, sensorBases, v, 0);
+      if (r.score > best.score) best = r;
+      if (onProgress) onProgress((i + 1) / values.length, label);
+    }
+  };
+
+  await scan(min, max, 10, 'Analyse de l’objectif');
+  await scan(best.hFov - 8, best.hFov + 8, 3, 'Affinage');
+  await scan(best.hFov - 2, best.hFov + 2, 1, 'Affinage précis');
+
+  // Refuse to report a value we don't actually believe. Two tell-tale
+  // signs of a failed calibration: the frames never really matched (low
+  // score - blurry, dark or featureless scene, or the user translated
+  // instead of rotating), or the optimum sits against the edge of the
+  // search range, which means the true value is outside it or the score
+  // surface is flat noise with no real optimum at all. Reporting a
+  // confident-looking wrong FOV would be worse than reporting nothing,
+  // since every later capture would be built on it.
+  if (best.score < minScore) return { fov: null, score: best.score, reason: 'no_match' };
+  if (best.hFov <= min + 1 || best.hFov >= max - 1) {
+    return { fov: null, score: best.score, reason: 'out_of_range' };
+  }
+  return { fov: best.hFov, score: best.score, reason: null };
+}
+
 // ---------------- exposure equalization ----------------
 
 function estimateGains(shots, params) {
@@ -495,14 +601,13 @@ export async function stitchPanorama(shots, options, onProgress) {
     outWidth = 2048,
     outHeight = 1024,
     refine = true,
-    // Realistic range for a phone's main rear camera as exposed to
-    // getUserMedia (roughly 60-85 degrees horizontal). Keeping the search
-    // inside the physically plausible band also avoids the degenerate low
-    // end, where shots barely overlap and the score surface is mostly
-    // noise.
-    fovCandidates = [60, 66, 72, 78, 84],
-    fovMin = 56,
-    fovMax = 92,
+    // Candidates are relative to the incoming guess rather than a fixed
+    // list, so this works for any lens (ultra-wide, main, tele) once that
+    // lens has been calibrated - a fixed main-camera band would be plain
+    // wrong for a 110-degree ultra-wide.
+    fovScales = [0.75, 0.85, 0.92, 1, 1.08, 1.16, 1.28],
+    fovMin = 24,
+    fovMax = 125,
     k1Candidates = [0, -0.05, -0.1, 0.05],
   } = options || {};
 
@@ -512,24 +617,8 @@ export async function stitchPanorama(shots, options, onProgress) {
   let k1 = 0;
 
   if (refine && shots.length >= 2) {
-    // Every lens-model candidate is evaluated from the SAME starting point
-    // (the raw sensor orientations), never from orientations already
-    // refined under a different candidate. Chaining them instead biases
-    // the search badly: orientations bend to fit whichever FOV was tried
-    // first, that config then scores best simply because it was fitted,
-    // and the true FOV is never selected.
-    const sensorBases = shots.map((s) => ({
-      right: [...s.baseBasis.right], up: [...s.baseBasis.up], forward: [...s.baseBasis.forward],
-    }));
-
-    const evaluate = async (candFov, candK1) => {
-      restoreBases(shots, sensorBases);
-      const params = makeParams(candFov, candK1, shots[0]);
-      for (let i = 0; i < shots.length; i++) refineShotOrientation(shots, i, params, QUICK_STAGES);
-      const score = configScore(shots, params);
-      await yieldToUi();
-      return { score, hFov: candFov, k1: candK1, bases: snapshotBases(shots) };
-    };
+    const sensorBases = sensorBasesOf(shots);
+    const evaluate = (candFov, candK1) => evaluateCandidate(shots, sensorBases, candFov, candK1);
 
     // Baseline: the user's / previous run's FOV. Any candidate has to
     // clearly beat this to be adopted, so that a capture with too little
@@ -543,6 +632,9 @@ export async function stitchPanorama(shots, options, onProgress) {
     // This is the step that removes the duplicated-objects problem: with a
     // wrong FOV, the same object near two frames' edges lands in two
     // different places in the panorama.
+    const fovCandidates = fovScales
+      .map((s) => Math.round(hFovGuess * s))
+      .filter((v) => v >= fovMin && v <= fovMax && v !== hFovGuess);
     for (let ci = 0; ci < fovCandidates.length; ci++) {
       const r = await evaluate(fovCandidates[ci], 0);
       if (r.score > best.score) best = r;

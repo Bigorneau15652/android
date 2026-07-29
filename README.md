@@ -42,6 +42,36 @@ et ouvre `http://localhost:8080` dans Chrome sur le même téléphone. Il
 faudra relancer cette commande à chaque utilisation (ou installer
 `Termux:Boot` pour l'automatiser au démarrage).
 
+## Choix de l'objectif et calibration
+
+Un smartphone a plusieurs objectifs arrière (principal, ultra grand-angle,
+téléobjectif) et chacun a un **angle de champ différent** — qui change
+aussi d'un modèle de téléphone à l'autre. C'est cet angle qui détermine le
+nombre de photos nécessaires et tous les calculs d'assemblage : une valeur
+fausse produit des objets dupliqués.
+
+Dans **Réglages** :
+- **Objectif utilisé** liste les caméras arrière détectées sur le
+  téléphone. La liste apparaît une fois l'autorisation caméra accordée.
+- **Calibrer cet objectif** mesure automatiquement son angle de champ :
+  tiens le téléphone droit et pivote lentement sur toi-même ; l'app prend
+  16 images toute seule, puis calcule. Compte environ 30 secondes. La
+  valeur est mémorisée **par objectif**, donc à faire une seule fois pour
+  chacun.
+
+Une fois un objectif calibré, tout s'adapte automatiquement : un ultra
+grand-angle demandera moins de photos qu'un téléobjectif pour couvrir la
+même sphère.
+
+Si tu ne calibres pas, ce n'est pas bloquant : l'app part d'une valeur par
+défaut et **mesure elle-même l'angle réel pendant le traitement de ta
+première capture**, puis la mémorise pour cet objectif. La première photo
+360 peut simplement être moins bien assemblée que les suivantes.
+
+Si une calibration échoue, l'app le dit explicitement et conserve la valeur
+précédente plutôt que d'enregistrer une mesure douteuse — refais un essai
+dans un endroit éclairé avec des détails visibles, en pivotant lentement.
+
 ## Comment ça marche
 
 0. À la toute première utilisation, un court tutoriel en français

@@ -132,6 +132,25 @@
   </div>
 </section>
 
+<!-- ===================== LENS CALIBRATION ===================== -->
+<section id="screen-calibrate" class="screen">
+  <div class="capture-wrap">
+    <video id="calib-video" autoplay playsinline muted></video>
+    <div class="capture-topbar">
+      <button class="btn-icon" id="btn-calib-cancel">✕</button>
+      <div id="calib-progress" class="capture-progress">0 / 16</div>
+      <div style="width:44px"></div>
+    </div>
+    <div id="calib-banner" class="capture-banner">
+      Tiens le téléphone bien droit et pivote lentement vers la droite,
+      sans te déplacer. Les images sont prises toutes seules.
+    </div>
+    <div class="capture-bottombar">
+      <div id="calib-status" class="capture-progress" style="flex:1">Prêt…</div>
+    </div>
+  </div>
+</section>
+
 <!-- ===================== CAPTURE ===================== -->
 <section id="screen-capture" class="screen">
   <div class="capture-wrap">
@@ -226,6 +245,18 @@
     <h1>Réglages</h1>
   </header>
   <div class="content">
+    <label class="field-label" for="set-lens">Objectif utilisé</label>
+    <select id="set-lens" class="select-input">
+      <option value="">Objectif par défaut (arrière)</option>
+    </select>
+    <div id="lens-fov-info" class="banner banner-info">Angle de champ non mesuré pour cet objectif.</div>
+    <button id="btn-calibrate" class="btn btn-secondary">🎯 Calibrer cet objectif</button>
+    <p class="hint">Chaque objectif du téléphone (principal, ultra grand-angle, téléobjectif)
+      a un angle de champ différent, et il change d'un modèle de téléphone à l'autre.
+      La calibration le mesure en une vingtaine de secondes et retient la valeur pour cet
+      objectif : le nombre de photos à prendre et les calculs d'assemblage s'y adaptent
+      ensuite automatiquement.</p>
+
     <label class="field-label" for="set-density">Densité de la grille de capture</label>
     <select id="set-density" class="select-input">
       <option value="rapide">Rapide (bande horizontale uniquement)</option>

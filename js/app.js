@@ -1,7 +1,7 @@
 import { OrientationTracker } from './orientation.js';
 import { buildGrid } from './grid.js';
-import { CaptureController } from './capture.js';
-import { stitchPanorama } from './align.js';
+import { CaptureController, listRearCameras, openCameraStream, CalibrationCapture } from './capture.js';
+import { stitchPanorama, calibrateFov, prepareShot } from './align.js';
 import { savePhoto, listPhotos, getPhoto, deletePhoto, renamePhoto } from './storage.js';
 
 const SETTINGS_KEY = 'photo360-settings-v1';
@@ -12,6 +12,12 @@ const DEFAULT_SETTINGS = {
   output: '2048x1024',
   autoCapture: true,
   refine: true,
+  deviceId: '',
+  // Measured horizontal FOV per camera deviceId. Every lens on the phone
+  // (and every phone) has a different one, so a single global value would
+  // be wrong as soon as the user switches lens or someone else installs
+  // the app.
+  lensFov: {},
 };
 
 let settings = loadSettings();
@@ -43,6 +49,34 @@ function loadSettings() {
 function saveSettings() {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
+// The FOV actually used for the currently selected lens: its measured
+// value if this lens has been calibrated, otherwise the manual slider
+// value as a starting guess.
+function currentFov() {
+  const measured = settings.lensFov[settings.deviceId || 'default'];
+  return measured || settings.fov;
+}
+function setMeasuredFov(fov) {
+  settings.lensFov[settings.deviceId || 'default'] = fov;
+  saveSettings();
+  updateLensInfo();
+}
+
+function updateLensInfo() {
+  const el = document.getElementById('lens-fov-info');
+  const measured = settings.lensFov[settings.deviceId || 'default'];
+  if (measured) {
+    el.className = 'banner banner-info';
+    el.textContent = `Angle de champ mesuré pour cet objectif : ${measured}° ` +
+      `(horizontal). Le nombre de photos et l'assemblage s'y adaptent.`;
+  } else {
+    el.className = 'banner banner-warning';
+    el.textContent = `Angle de champ non mesuré pour cet objectif : l'app part de ` +
+      `${settings.fov}° et corrigera après la première capture. Lance une calibration ` +
+      `pour un résultat correct dès la première fois.`;
+  }
+}
+
 function applySettingsToForm() {
   document.getElementById('set-density').value = settings.density;
   document.getElementById('set-poles').value = settings.poles ? '1' : '0';
@@ -51,8 +85,36 @@ function applySettingsToForm() {
   document.getElementById('set-output').value = settings.output;
   document.getElementById('set-auto').value = settings.autoCapture ? '1' : '0';
   document.getElementById('set-refine').value = settings.refine ? '1' : '0';
+  const lensSel = document.getElementById('set-lens');
+  if (lensSel) lensSel.value = settings.deviceId || '';
+  updateLensInfo();
 }
 applySettingsToForm();
+
+// ---------------- lens selection ----------------
+const lensSelect = document.getElementById('set-lens');
+
+async function populateLenses() {
+  try {
+    const cams = await listRearCameras();
+    if (!cams.length) return;
+    lensSelect.innerHTML = '<option value="">Objectif par défaut (arrière)</option>';
+    cams.forEach((c, i) => {
+      const opt = document.createElement('option');
+      opt.value = c.deviceId;
+      const measured = settings.lensFov[c.deviceId];
+      opt.textContent = `${c.label}${measured ? ` — ${measured}°` : ''}`;
+      lensSelect.appendChild(opt);
+    });
+    lensSelect.value = settings.deviceId || '';
+  } catch (e) { /* permission not granted yet - list stays as-is */ }
+}
+
+lensSelect.addEventListener('change', (e) => {
+  settings.deviceId = e.target.value;
+  saveSettings();
+  updateLensInfo();
+});
 
 document.getElementById('set-density').addEventListener('change', (e) => { settings.density = e.target.value; saveSettings(); });
 document.getElementById('set-poles').addEventListener('change', (e) => { settings.poles = e.target.value === '1'; saveSettings(); });
@@ -65,7 +127,10 @@ document.getElementById('set-output').addEventListener('change', (e) => { settin
 document.getElementById('set-auto').addEventListener('change', (e) => { settings.autoCapture = e.target.value === '1'; saveSettings(); });
 document.getElementById('set-refine').addEventListener('change', (e) => { settings.refine = e.target.value === '1'; saveSettings(); });
 
-document.getElementById('btn-settings').addEventListener('click', () => showScreen('screen-settings'));
+document.getElementById('btn-settings').addEventListener('click', () => {
+  showScreen('screen-settings');
+  populateLenses();
+});
 
 // ---------------- home ----------------
 const homeHint = document.getElementById('home-hint');
@@ -116,6 +181,121 @@ onboardingNextBtn.addEventListener('click', () => {
 document.getElementById('btn-onboarding-skip').addEventListener('click', closeOnboarding);
 document.getElementById('btn-onboarding-close').addEventListener('click', closeOnboarding);
 document.getElementById('btn-help').addEventListener('click', () => openOnboarding(null));
+
+// ---------------- lens calibration ----------------
+// A refused calibration is reported as such rather than silently storing a
+// value we don't believe: every later capture would be built on it.
+function calibrationFailureMessage(reason) {
+  const retry = "\n\nLa valeur précédente est conservée. Tu peux réessayer.";
+  switch (reason) {
+    case 'no_movement':
+      return "Calibration impossible : les images n'ont pas changé pendant que le " +
+        'téléphone tournait. Vérifie que la caméra n\'est pas masquée et refais un ' +
+        'essai en pivotant réellement sur toi-même.' + retry;
+    case 'no_match':
+      return "Calibration impossible : l'app n'a pas réussi à faire correspondre les " +
+        'images entre elles. Place-toi dans un endroit bien éclairé, avec des détails ' +
+        'visibles (meubles, affiches, fenêtres), et pivote plus lentement et ' +
+        'régulièrement, sans te déplacer.' + retry;
+    case 'out_of_range':
+      return "Calibration impossible : la valeur mesurée sort de la plage plausible " +
+        "pour un objectif de smartphone, elle n'est donc pas fiable. Refais un essai " +
+        'en pivotant plus lentement, sur au moins trois quarts de tour.' + retry;
+    case 'not_enough_frames':
+      return "Calibration interrompue : pas assez d'images ont été prises. Recommence " +
+        'en pivotant régulièrement jusqu\'à la fin du décompte.' + retry;
+    default:
+      return "La calibration n'a pas abouti." + retry;
+  }
+}
+const calibVideo = document.getElementById('calib-video');
+const calibProgress = document.getElementById('calib-progress');
+const calibStatus = document.getElementById('calib-status');
+const calibBanner = document.getElementById('calib-banner');
+let calibStream = null;
+let calibController = null;
+
+function stopCalibration() {
+  if (calibController) { calibController.stop(); calibController = null; }
+  if (calibStream) {
+    for (const t of calibStream.getTracks()) t.stop();
+    calibStream = null;
+  }
+}
+
+document.getElementById('btn-calib-cancel').addEventListener('click', () => {
+  stopCalibration();
+  showScreen('screen-settings');
+});
+
+document.getElementById('btn-calibrate').addEventListener('click', async () => {
+  if (!window.isSecureContext) {
+    alert("La caméra n'est pas accessible sur cette page (contexte non sécurisé).");
+    return;
+  }
+  showScreen('screen-calibrate');
+  calibStatus.textContent = 'Initialisation…';
+  calibProgress.textContent = '0 / 8';
+  calibBanner.classList.remove('hidden');
+
+  try {
+    if (!tracker) {
+      tracker = new OrientationTracker();
+      await tracker.start();
+    }
+  } catch (err) {
+    stopCalibration();
+    showScreen('screen-settings');
+    alert(err.message || "Capteurs d'orientation indisponibles.");
+    return;
+  }
+
+  try {
+    calibStream = await openCameraStream(settings.deviceId);
+    calibVideo.srcObject = calibStream;
+    await calibVideo.play();
+  } catch (err) {
+    stopCalibration();
+    showScreen('screen-settings');
+    alert('Accès caméra refusé ou indisponible.');
+    return;
+  }
+  // Labels only become readable once a stream has been granted, so this is
+  // the first point where the lens list can be shown properly.
+  populateLenses();
+
+  calibStatus.textContent = 'Pivote lentement…';
+  // Frame count and step come from CalibrationCapture's documented
+  // defaults (a near-full turn), which is what the FOV estimate needs.
+  calibController = new CalibrationCapture({ video: calibVideo, tracker });
+  calibController.onFrame = (n, total) => {
+    calibProgress.textContent = `${n} / ${total}`;
+  };
+  calibController.onDone = async (rawShots) => {
+    stopCalibration();
+    showScreen('screen-processing');
+    processingLabel.textContent = 'Mesure de l’angle de champ…';
+    processingBar.style.width = '0%';
+    await new Promise((r) => setTimeout(r, 50));
+
+    const shots = rawShots.map((s) => prepareShot(s.imageData, s.basis));
+    const { fov, reason } = await calibrateFov(shots, {}, (frac, label) => {
+      processingBar.style.width = `${Math.round(frac * 100)}%`;
+      if (label) processingLabel.textContent = label;
+    });
+
+    if (fov) {
+      setMeasuredFov(Math.round(fov));
+      populateLenses();
+      alert(`Angle de champ mesuré : ${Math.round(fov)}° horizontal.\n\n` +
+        `Le nombre de photos et l'assemblage s'adapteront désormais à cet objectif.`);
+    } else {
+      alert(calibrationFailureMessage(reason));
+    }
+    showScreen('screen-settings');
+  };
+  calibController.start();
+});
 
 // ---------------- prep (permissions) ----------------
 const prepStatus = document.getElementById('prep-status');
@@ -177,12 +357,15 @@ async function goToCapture() {
   overlay.width = window.innerWidth;
   overlay.height = window.innerHeight;
 
-  const targets = buildGrid(settings.density, settings.fov, settings.poles);
+  // Grid density is derived from the *selected lens's* field of view, so a
+  // wide-angle lens automatically needs fewer shots and a tele more.
+  const fov = currentFov();
+  const targets = buildGrid(settings.density, fov, settings.poles);
 
   const ctrl = new CaptureController({
     video, overlayCanvas: overlay, tracker, targets,
     settings: {
-      hFov: settings.fov, tolerance: 0.22, autoCapture: settings.autoCapture,
+      hFov: fov, deviceId: settings.deviceId, tolerance: 0.22, autoCapture: settings.autoCapture,
       // Longer hold + a steadiness requirement: a frame grabbed while the
       // phone is still swinging is blurred and mis-tagged, which no amount
       // of post-processing can undo.
@@ -246,7 +429,7 @@ async function finishCapture(shots) {
 
   const { w: outW, h: outH } = parseOutput(settings.output);
   const result = await stitchPanorama(shots, {
-    hFovGuess: settings.fov,
+    hFovGuess: currentFov(),
     outWidth: outW,
     outHeight: outH,
     refine: settings.refine,
@@ -257,13 +440,9 @@ async function finishCapture(shots) {
 
   pendingCanvas = result.canvas;
   pendingCoverage = result.coverage;
-  // The solver's own FOV estimate is far more reliable than the manual
-  // guess, so keep it as the starting point for the next capture.
-  if (settings.refine && result.hFovDeg && Math.abs(result.hFovDeg - settings.fov) > 0.5) {
-    settings.fov = result.hFovDeg;
-    saveSettings();
-    applySettingsToForm();
-  }
+  // The solver measures the lens far more reliably than any manual guess,
+  // so remember it against the lens that was actually used.
+  if (settings.refine && result.hFovDeg) setMeasuredFov(Math.round(result.hFovDeg));
   openPreview();
 }
 
