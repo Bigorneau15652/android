@@ -135,6 +135,15 @@ export class CaptureController {
       if (dist < bestDist) { bestDist = dist; bestTarget = t; }
     }
     this.currentIndex = this.targets.indexOf(bestTarget);
+    // The hold timer must restart for the new target: without this, if two
+    // targets are close enough that the new one is already inside
+    // tolerance the instant we switch to it, the stale "aligned since"
+    // timestamp from the *previous* target reads as already-elapsed and
+    // fires an immediate capture - which then advances again, repeats
+    // next frame, and so on. That's the rapid strobe/flicker bug where the
+    // guide burns through several close targets at ~60/s instead of
+    // waiting for a deliberate, held-still aim on each one.
+    this._alignedSince = null;
   }
 
   _loop() {
@@ -291,8 +300,14 @@ export class CaptureController {
 
     if (aligned && this.settings.autoCapture) {
       if (this._alignedSince == null) this._alignedSince = performance.now();
-      if (!this._captureBusy && performance.now() - this._alignedSince >= this.settings.holdMs) {
+      const now = performance.now();
+      const cooledDown = now >= (this._cooldownUntil || 0);
+      if (!this._captureBusy && cooledDown && now - this._alignedSince >= this.settings.holdMs) {
         this._captureBusy = true;
+        // Hard floor on top of the hold-timer reset in _advanceToNextPending:
+        // guarantees a visible beat between two captures even if some other
+        // edge case leaves alignment continuously true across the switch.
+        this._cooldownUntil = now + this.settings.holdMs;
         this.captureCurrent().finally(() => { this._captureBusy = false; });
       }
     } else {
