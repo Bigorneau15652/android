@@ -118,17 +118,23 @@ export class CaptureController {
   }
 
   _advanceToNextPending() {
-    if (this.targets.every((t) => t.done)) { this.currentIndex = -1; return; }
-    // Pick the nearest not-done target to current yaw/pitch for shorter panning.
+    const pending = this.targets.filter((t) => !t.done);
+    if (!pending.length) { this.currentIndex = -1; return; }
+    // Prefer finishing the current row (sweeping left/right, an easy small
+    // pan) before hopping to a different pitch row - jumping rows on every
+    // shot was what made the guide feel like it kept "starting over" with
+    // the off-screen arrow. Only cross rows once the current one is done.
     const yaw = this.tracker.yaw, pitch = this.tracker.pitch;
-    let best = -1, bestDist = Infinity;
-    this.targets.forEach((t, i) => {
-      if (t.done) return;
+    const currentRow = this.currentIndex >= 0 ? this.targets[this.currentIndex].row : null;
+    const sameRowPending = pending.filter((t) => t.row === currentRow);
+    const pool = sameRowPending.length ? sameRowPending : pending;
+    let bestTarget = null, bestDist = Infinity;
+    for (const t of pool) {
       const dy = angleDiff(t.yaw, yaw), dp = t.pitch - pitch;
       const dist = dy * dy + dp * dp;
-      if (dist < bestDist) { bestDist = dist; best = i; }
-    });
-    this.currentIndex = best;
+      if (dist < bestDist) { bestDist = dist; bestTarget = t; }
+    }
+    this.currentIndex = this.targets.indexOf(bestTarget);
   }
 
   _loop() {
@@ -208,12 +214,17 @@ export class CaptureController {
     if (proj.visible && proj.onScreen) {
       const cx = w / 2 + proj.nx * (w / 2);
       const cy = h / 2 - proj.ny * (h / 2);
-      const distNorm = Math.max(Math.abs(proj.nx), Math.abs(proj.ny));
+      // Euclidean, to match the circular hole drawn below: a point that
+      // visually looks inside the hole must always count as aligned, or
+      // the guide feels broken ("I put the dot in the hole and nothing
+      // happens"). Deriving holeR from the same tolerance value (scaled by
+      // the smaller screen dimension) guarantees that.
+      const distNorm = Math.sqrt(proj.nx * proj.nx + proj.ny * proj.ny);
       aligned = distNorm <= this.settings.tolerance && level;
 
       const rectW = Math.min(w, h) * 0.42;
       const rectH = rectW * 1.35;
-      const holeR = rectW * 0.34;
+      const holeR = this.settings.tolerance * (Math.min(w, h) / 2);
       const frameColor = aligned ? '#ffffff' : FLUO_BLUE;
       drawTargetFrame(ctx, cx, cy, rectW, rectH, holeR, frameColor);
 
@@ -233,8 +244,21 @@ export class CaptureController {
         ctx.restore();
       }
     } else {
-      // Off-screen: draw a directional arrow at the edge pointing toward target.
-      const angle = Math.atan2(-proj.ny || 0, proj.nx || (angleDiff(target.yaw, this.tracker.yaw) >= 0 ? 1 : -1));
+      // Off-screen: draw a directional arrow at the edge pointing toward
+      // target. Beyond ~87 degrees of separation the gnomonic projection
+      // is undefined (proj.visible is false) - fall back to a plain
+      // yaw/pitch bearing so the arrow still points up/down as well as
+      // left/right instead of collapsing to a left-right-only hint, which
+      // was why tilting up for the top row/zenith shots felt like the
+      // guide "lost" the target.
+      let angle;
+      if (proj.visible) {
+        angle = Math.atan2(-proj.ny, proj.nx);
+      } else {
+        const dy = angleDiff(target.yaw, this.tracker.yaw);
+        const dp = target.pitch - this.tracker.pitch;
+        angle = Math.atan2(dp, dy);
+      }
       const rx = w / 2 + Math.cos(angle) * (w / 2 - 60);
       const ry = h / 2 - Math.sin(angle) * (h / 2 - 60);
       ctx.save();

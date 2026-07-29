@@ -141,8 +141,8 @@ async function goToCapture() {
   const ctrl = new CaptureController({
     video, overlayCanvas: overlay, tracker, targets,
     settings: {
-      hFov: settings.fov, tolerance: 0.16, autoCapture: settings.autoCapture,
-      captureW, captureH, holdMs: 350, rollLimit: 12,
+      hFov: settings.fov, tolerance: 0.22, autoCapture: settings.autoCapture,
+      captureW, captureH, holdMs: 350, rollLimit: 16,
     },
     outputWidth: outW, outputHeight: outH,
   });
