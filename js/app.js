@@ -1,6 +1,7 @@
 import { OrientationTracker } from './orientation.js';
 import { buildGrid } from './grid.js';
 import { CaptureController } from './capture.js';
+import { stitchPanorama } from './align.js';
 import { savePhoto, listPhotos, getPhoto, deletePhoto, renamePhoto } from './storage.js';
 
 const SETTINGS_KEY = 'photo360-settings-v1';
@@ -10,11 +11,12 @@ const DEFAULT_SETTINGS = {
   fov: 66,
   output: '2048x1024',
   autoCapture: true,
+  refine: true,
 };
 
 let settings = loadSettings();
-let pendingAccumulator = null;
 let pendingCanvas = null;
+let pendingCoverage = 1;
 let currentCaptureController = null;
 let currentViewer = null; // active pannellum instance, destroyed on screen change
 let currentViewerPhotoId = null;
@@ -48,6 +50,7 @@ function applySettingsToForm() {
   document.getElementById('set-fov-value').textContent = settings.fov;
   document.getElementById('set-output').value = settings.output;
   document.getElementById('set-auto').value = settings.autoCapture ? '1' : '0';
+  document.getElementById('set-refine').value = settings.refine ? '1' : '0';
 }
 applySettingsToForm();
 
@@ -60,6 +63,7 @@ document.getElementById('set-fov').addEventListener('input', (e) => {
 });
 document.getElementById('set-output').addEventListener('change', (e) => { settings.output = e.target.value; saveSettings(); });
 document.getElementById('set-auto').addEventListener('change', (e) => { settings.autoCapture = e.target.value === '1'; saveSettings(); });
+document.getElementById('set-refine').addEventListener('change', (e) => { settings.refine = e.target.value === '1'; saveSettings(); });
 
 document.getElementById('btn-settings').addEventListener('click', () => showScreen('screen-settings'));
 
@@ -173,17 +177,17 @@ async function goToCapture() {
   overlay.width = window.innerWidth;
   overlay.height = window.innerHeight;
 
-  const captureW = 1280, captureH = 960;
   const targets = buildGrid(settings.density, settings.fov, settings.poles);
-  const { w: outW, h: outH } = parseOutput(settings.output);
 
   const ctrl = new CaptureController({
     video, overlayCanvas: overlay, tracker, targets,
     settings: {
       hFov: settings.fov, tolerance: 0.22, autoCapture: settings.autoCapture,
-      captureW, captureH, holdMs: 350, rollLimit: 16,
+      // Longer hold + a steadiness requirement: a frame grabbed while the
+      // phone is still swinging is blurred and mis-tagged, which no amount
+      // of post-processing can undo.
+      holdMs: 600, rollLimit: 16, steadyLimit: 8,
     },
-    outputWidth: outW, outputHeight: outH,
   });
   currentCaptureController = ctrl;
 
@@ -195,10 +199,13 @@ async function goToCapture() {
     return;
   }
 
-  ctrl.on('progress', ({ done, total, aligned, level }) => {
+  ctrl.on('progress', ({ done, total, aligned, level, steady }) => {
     progressEl.textContent = `${done} / ${total}`;
     if (!level) {
       captureBanner.textContent = '📱 Tiens le téléphone bien droit (à plat sur l\'axe vertical).';
+      captureBanner.classList.remove('hidden');
+    } else if (!steady) {
+      captureBanner.textContent = '✋ Immobilise le téléphone un instant…';
       captureBanner.classList.remove('hidden');
     } else if (settings.autoCapture && aligned) {
       captureBanner.textContent = '✅ Cible atteinte, capture…';
@@ -207,7 +214,7 @@ async function goToCapture() {
       captureBanner.classList.add('hidden');
     }
   });
-  ctrl.on('done', (accumulator) => finishCapture(accumulator));
+  ctrl.on('done', (shots) => finishCapture(shots));
 
   document.getElementById('btn-capture-manual').onclick = () => ctrl.captureCurrent();
   document.getElementById('btn-capture-skip').onclick = () => ctrl.skipCurrent();
@@ -221,14 +228,42 @@ async function goToCapture() {
   ctrl.start();
 }
 
-async function finishCapture(accumulator) {
+const processingLabel = document.getElementById('processing-label');
+const processingBar = document.getElementById('processing-bar');
+
+async function finishCapture(shots) {
   currentCaptureController.stopCamera();
   showScreen('screen-processing');
-  // Let the processing screen paint before the synchronous, potentially
-  // heavy toCanvas() gap-fill pass runs.
+  processingLabel.textContent = 'Préparation…';
+  processingBar.style.width = '0%';
   await new Promise((r) => setTimeout(r, 50));
-  pendingAccumulator = accumulator;
-  pendingCanvas = accumulator.toCanvas();
+
+  if (!shots.length) {
+    alert("Aucune photo n'a été prise.");
+    showScreen('screen-home');
+    return;
+  }
+
+  const { w: outW, h: outH } = parseOutput(settings.output);
+  const result = await stitchPanorama(shots, {
+    hFovGuess: settings.fov,
+    outWidth: outW,
+    outHeight: outH,
+    refine: settings.refine,
+  }, (frac, label) => {
+    processingBar.style.width = `${Math.round(frac * 100)}%`;
+    if (label) processingLabel.textContent = label;
+  });
+
+  pendingCanvas = result.canvas;
+  pendingCoverage = result.coverage;
+  // The solver's own FOV estimate is far more reliable than the manual
+  // guess, so keep it as the starting point for the next capture.
+  if (settings.refine && result.hFovDeg && Math.abs(result.hFovDeg - settings.fov) > 0.5) {
+    settings.fov = result.hFovDeg;
+    saveSettings();
+    applySettingsToForm();
+  }
   openPreview();
 }
 
@@ -239,7 +274,7 @@ const previewNameInput = document.getElementById('preview-name');
 
 function openPreview() {
   showScreen('screen-preview');
-  const coverage = pendingAccumulator.coverage();
+  const coverage = pendingCoverage;
   if (coverage < 0.97) {
     previewCoverageBanner.textContent = `⚠️ Couverture incomplète (${Math.round(coverage * 100)}% de la sphère). ` +
       `Les zones manquantes ont été comblées avec les pixels les plus proches — vérifie le rendu ci-dessus. ` +
@@ -260,7 +295,7 @@ function openPreview() {
 }
 
 document.getElementById('btn-preview-discard').addEventListener('click', () => {
-  pendingAccumulator = null; pendingCanvas = null;
+  pendingCanvas = null;
   showScreen('screen-home');
 });
 

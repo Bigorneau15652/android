@@ -264,6 +264,21 @@ select, input[type=text], input[type=range] {
 .pannellum-box-full { height: calc(100vh - 118px); border-radius: 0; margin-bottom: 0; }
 .viewer-actions { padding: 10px 12px; }
 
+.progress-track {
+  width: 100%;
+  max-width: 320px;
+  height: 10px;
+  background: var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--blue);
+  transition: width 0.25s ease;
+}
+
 /* ---------- onboarding tutorial ---------- */
 #screen-onboarding {
   background: var(--navy);

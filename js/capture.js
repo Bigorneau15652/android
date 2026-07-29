@@ -1,10 +1,18 @@
 // Drives the capture screen: camera stream, orientation-guided reticle
-// overlay, auto/manual shutter, and feeding each accepted frame into the
-// EquirectAccumulator immediately (kept out of memory afterwards) so peak
-// RAM stays low even for a dense grid on a phone browser.
+// overlay, auto/manual shutter, and collecting each accepted frame.
+//
+// Frames are kept (downscaled) rather than stitched on the fly, because
+// the post-capture refinement in align.js needs to compare shots against
+// each other to correct the sensor's orientation error and the assumed
+// lens FOV - impossible once they've been flattened into one buffer.
 
 import { angleDiff } from './orientation.js';
-import { EquirectAccumulator, verticalFovFromHorizontal } from './stitch.js';
+import { prepareShot, verticalFovFromHorizontal } from './align.js';
+
+// Stored frame size. Big enough that a shot still out-resolves its slice
+// of a 4096-wide equirect output, small enough that a dense grid stays
+// well inside a phone browser's memory budget (~1.2MB per shot).
+const STORE_W = 640, STORE_H = 480;
 
 const d2r = Math.PI / 180;
 const FLUO_BLUE = '#12e1ff';
@@ -59,7 +67,7 @@ function drawTargetFrame(ctx, cx, cy, w, h, holeR, color) {
 }
 
 export class CaptureController {
-  constructor({ video, overlayCanvas, tracker, targets, settings, outputWidth, outputHeight }) {
+  constructor({ video, overlayCanvas, tracker, targets, settings }) {
     this.video = video;
     this.overlay = overlayCanvas;
     this.octx = overlayCanvas.getContext('2d');
@@ -71,17 +79,20 @@ export class CaptureController {
     // the camera's starting orientation instead of defaulting to row 0 of
     // the grid array (which happens to be the top pitch row).
     this.currentIndex = -1;
-    this.settings = settings; // { hFov, tolerance, autoCapture, captureW, captureH, holdMs, rollLimit }
-    this.vFov = verticalFovFromHorizontal(settings.hFov, settings.captureW, settings.captureH);
-    this.accumulator = new EquirectAccumulator(outputWidth, outputHeight);
+    this.settings = settings; // { hFov, tolerance, autoCapture, holdMs, rollLimit, steadyLimit }
+    this.vFov = verticalFovFromHorizontal(settings.hFov, STORE_W, STORE_H);
+    this.shots = [];
     this.stream = null;
     this._running = false;
     this._alignedSince = null;
     this._captureBusy = false;
+    this._angSpeed = 0; // smoothed degrees/second, for the steadiness gate
+    this._prevForward = null;
+    this._prevT = 0;
     this.listeners = { progress: [], shot: [], done: [], error: [] };
     this._shotCanvas = document.createElement('canvas');
-    this._shotCanvas.width = settings.captureW;
-    this._shotCanvas.height = settings.captureH;
+    this._shotCanvas.width = STORE_W;
+    this._shotCanvas.height = STORE_H;
     this._shotCtx = this._shotCanvas.getContext('2d', { willReadFrequently: true });
   }
 
@@ -93,8 +104,8 @@ export class CaptureController {
       audio: false,
       video: {
         facingMode: { ideal: 'environment' },
-        width: { ideal: this.settings.captureW },
-        height: { ideal: this.settings.captureH },
+        width: { ideal: 1920 },
+        height: { ideal: 1440 },
       },
     });
     this.video.srcObject = this.stream;
@@ -209,12 +220,39 @@ export class CaptureController {
     });
   }
 
+  // Smoothed angular speed of the camera, in degrees/second. Used to
+  // refuse firing while the phone is still swinging: a frame grabbed
+  // mid-motion is both motion-blurred and tagged with an orientation that
+  // has already moved on by the time the frame is read, which then fights
+  // the post-capture alignment.
+  _updateAngularSpeed() {
+    const now = performance.now();
+    const f = this.tracker.forwardVec;
+    if (!f) return;
+    if (this._prevForward) {
+      const dt = (now - this._prevT) / 1000;
+      if (dt > 0.01) {
+        const c = Math.max(-1, Math.min(1,
+          f[0] * this._prevForward[0] + f[1] * this._prevForward[1] + f[2] * this._prevForward[2]));
+        const deg = Math.acos(c) / d2r;
+        const inst = deg / dt;
+        this._angSpeed = this._angSpeed * 0.7 + inst * 0.3;
+        this._prevForward = [...f];
+        this._prevT = now;
+      }
+    } else {
+      this._prevForward = [...f];
+      this._prevT = now;
+    }
+  }
+
   _drawOverlay() {
     const canvas = this.overlay;
     const w = canvas.width, h = canvas.height;
     const ctx = this.octx;
     ctx.clearRect(0, 0, w, h);
 
+    this._updateAngularSpeed();
     this._drawMiniMap(ctx, w, h);
 
     if (this.currentIndex < 0) return;
@@ -223,6 +261,7 @@ export class CaptureController {
 
     const roll = this.tracker.roll || 0;
     const level = Math.abs(roll) <= this.settings.rollLimit;
+    const steady = this._angSpeed <= this.settings.steadyLimit;
 
     let aligned = false;
     if (proj.visible && proj.onScreen) {
@@ -234,12 +273,15 @@ export class CaptureController {
       // happens"). Deriving holeR from the same tolerance value (scaled by
       // the smaller screen dimension) guarantees that.
       const distNorm = Math.sqrt(proj.nx * proj.nx + proj.ny * proj.ny);
-      aligned = distNorm <= this.settings.tolerance && level;
+      const onTarget = distNorm <= this.settings.tolerance && level;
+      aligned = onTarget && steady;
 
       const rectW = Math.min(w, h) * 0.42;
       const rectH = rectW * 1.35;
       const holeR = this.settings.tolerance * (Math.min(w, h) / 2);
-      const frameColor = aligned ? '#ffffff' : FLUO_BLUE;
+      // Amber while the aim is right but the phone is still moving, so the
+      // wait reads as "hold still" rather than as the guide being broken.
+      const frameColor = aligned ? '#ffffff' : (onTarget ? '#ffcc33' : FLUO_BLUE);
       drawTargetFrame(ctx, cx, cy, rectW, rectH, holeR, frameColor);
 
       // Once the aim circle is close to the target's hole, show a second
@@ -307,7 +349,7 @@ export class CaptureController {
     ctx.fill();
 
     this._emit('progress', {
-      done: this.doneCount(), total: this.totalCount(), aligned, level,
+      done: this.doneCount(), total: this.totalCount(), aligned, level, steady,
       rowPitch: target.pitch,
     });
 
@@ -331,18 +373,20 @@ export class CaptureController {
   async captureCurrent() {
     if (this.currentIndex < 0) return false;
     const target = this.targets[this.currentIndex];
-    const yawC = this.tracker.yaw, pitchC = this.tracker.pitch;
     // Snapshot the actual measured basis vectors (not just yaw/pitch/roll
-    // scalars) so the stitcher can compensate for any roll exactly - see
-    // orientation.js and stitch.js for why re-deriving a rotation from the
-    // roll angle alone isn't reliable in this pose.
-    const rightVec = this.tracker.rightVec.slice();
-    const upVec = this.tracker.upVec.slice();
-    const forwardVec = this.tracker.forwardVec.slice();
+    // scalars) so the aligner can compensate for any roll exactly - see
+    // orientation.js for why re-deriving a rotation from the roll angle
+    // alone isn't reliable in this pose. These are only a starting guess:
+    // align.js refines them against the neighbouring shots' pixels.
+    const basis = {
+      right: this.tracker.rightVec.slice(),
+      up: this.tracker.upVec.slice(),
+      forward: this.tracker.forwardVec.slice(),
+    };
 
-    const { captureW: cw, captureH: ch } = this.settings;
-    this._shotCtx.drawImage(this.video, 0, 0, cw, ch);
-    this.accumulator.addShot(this._shotCanvas, yawC, pitchC, rightVec, upVec, forwardVec, this.settings.hFov, this.vFov);
+    this._shotCtx.drawImage(this.video, 0, 0, STORE_W, STORE_H);
+    const imageData = this._shotCtx.getImageData(0, 0, STORE_W, STORE_H);
+    this.shots.push(prepareShot(imageData, basis));
 
     target.done = true;
     if (navigator.vibrate) navigator.vibrate(40);
@@ -355,7 +399,7 @@ export class CaptureController {
     this._advanceToNextPending();
     if (this.currentIndex < 0) {
       this._running = false;
-      this._emit('done', this.accumulator);
+      this._emit('done', this.shots);
     }
     return true;
   }
@@ -366,12 +410,12 @@ export class CaptureController {
     this._advanceToNextPending();
     if (this.currentIndex < 0) {
       this._running = false;
-      this._emit('done', this.accumulator);
+      this._emit('done', this.shots);
     }
   }
 
   finishEarly() {
     this._running = false;
-    this._emit('done', this.accumulator);
+    this._emit('done', this.shots);
   }
 }

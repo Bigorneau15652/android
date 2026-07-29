@@ -59,8 +59,13 @@ faudra relancer cette commande à chaque utilisation (ou installer
    peux désactiver l'automatique dans Réglages et appuyer sur 📸
    toi-même).
 4. Une fois toutes les cibles couvertes (ou en appuyant sur *Terminer
-   maintenant*), l'appli assemble une image équirectangulaire unique et te
-   montre un aperçu 360° interactif.
+   maintenant*), l'appli lance le **recalage** : elle compare les photos
+   entre elles pour corriger la dérive du gyroscope, mesurer le vrai champ
+   de vision de ton objectif, estimer sa distorsion et égaliser les
+   luminosités, avant d'assembler l'image équirectangulaire. Compte de
+   quelques secondes à une minute selon le nombre de photos ; une barre de
+   progression indique l'étape en cours. Tu obtiens ensuite un aperçu 360°
+   interactif.
 5. **Enregistrer** la garde dans *Mes photos 360* (stockée uniquement sur
    ce téléphone, dans le navigateur — jamais envoyée nulle part).
    **Envoyer par email / Partager** ouvre le sélecteur de partage natif
@@ -79,21 +84,40 @@ Le fichier produit est un **JPG classique** (image équirectangulaire) :
 c'est exactement le format attendu par le widget Grist Pannellum que tu
 utilises déjà — tu peux l'attacher directement, sans conversion.
 
+## Pour obtenir la meilleure qualité
+
+- **Garde le téléphone près de toi (20–30 cm), pas à bout de bras.** C'est
+  le point le plus important. En pivotant, l'objectif décrit un cercle
+  autour de ton axe de rotation : plus ce cercle est grand, plus les objets
+  proches se décalent les uns par rapport aux autres d'une photo à l'autre
+  (parallaxe). Aucun assemblage par rotation — ni le nôtre, ni celui des
+  applis pro — ne peut corriger ça, et c'est ce qui produit des objets
+  dédoublés.
+- **Pivote sur place**, sans faire un pas de côté, pour la même raison.
+- **Immobilise le téléphone** une fraction de seconde une fois la cible
+  atteinte : l'app attend d'elle-même que le mouvement se calme (le cadre
+  passe en orange tant que ça bouge), mais un mouvement continu retarde
+  chaque prise.
+- **Évite les sujets qui bougent** (personnes qui marchent) : ils
+  apparaîtront à plusieurs endroits, l'assemblage n'y peut rien.
+- Les pièces très proches/exiguës sont le cas le plus difficile
+  (la parallaxe y est maximale) ; recule-toi autant que possible du
+  mobilier.
+
 ## Limites à connaître
 
-- L'assemblage utilise une reprojection géométrique (position + orientation
-  du téléphone au moment de chaque photo) avec un léger fondu aux jonctions,
-  **sans recherche automatique de points de correspondance** entre photos
-  (contrairement à des outils comme Google Street View). Résultat : bon
-  dans la majorité des cas, mais des jonctions légèrement visibles sont
-  possibles si le cadrage n'est pas précis.
-- Le champ de vision de l'objectif est **supposé** (réglable dans
-  Réglages, 66° par défaut). S'il est mal réglé pour ton téléphone, les
-  jonctions entre photos seront décalées — ajuste la valeur et refais un
-  essai si besoin.
+- L'assemblage recale les photos les unes par rapport aux autres par
+  corrélation d'image, mais **sans détection de points caractéristiques ni
+  fondu multi-bandes** comme les moteurs professionnels. Résultat : bon
+  dans la majorité des cas, mais des jonctions restent possibles sur des
+  scènes très proches ou peu texturées.
+- La parallaxe (voir ci-dessus) ne peut pas être corrigée, seulement
+  minimisée par la façon de tenir le téléphone.
 - Si tu désactives les photos zénith/nadir (plafond/sol), ces zones sont
   comblées en étirant les pixels les plus proches plutôt que d'être
   vraiment photographiées.
+- Le recalage peut être désactivé dans Réglages pour un essai rapide, mais
+  la qualité d'assemblage sera alors nettement moins bonne.
 
 ## Confidentialité
 

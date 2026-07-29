@@ -16,7 +16,7 @@ const ASSETS = [
   './js/orientation.js',
   './js/grid.js',
   './js/capture.js',
-  './js/stitch.js',
+  './js/align.js',
   './js/storage.js',
   './vendor/pannellum/pannellum.js',
   './vendor/pannellum/pannellum.css',
