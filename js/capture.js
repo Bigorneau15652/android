@@ -7,6 +7,56 @@ import { angleDiff } from './orientation.js';
 import { EquirectAccumulator, verticalFovFromHorizontal } from './stitch.js';
 
 const d2r = Math.PI / 180;
+const FLUO_BLUE = '#12e1ff';
+
+// Groups targets into the rows the on-screen mini-map draws: zenith (if
+// present) on top, then each pitch row high-to-low sorted by yaw, then
+// nadir (if present) at the bottom. Poles get their own single-cell row.
+function buildMiniMapRows(targets) {
+  const poles = targets.filter((t) => t.isPole);
+  const rowTargets = targets.filter((t) => !t.isPole);
+  const pitches = [...new Set(rowTargets.map((t) => t.row))].sort((a, b) => b - a);
+  const rows = pitches.map((p) => rowTargets.filter((t) => t.row === p).sort((a, b) => a.yaw - b.yaw));
+  const zenith = poles.find((t) => t.pitch > 0);
+  const nadir = poles.find((t) => t.pitch < 0);
+  const all = [];
+  if (zenith) all.push([zenith]);
+  all.push(...rows);
+  if (nadir) all.push([nadir]);
+  return all;
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// Target reticle: a rounded rectangle with a circular hole punched out
+// (via destination-out, revealing the live camera feed through it) that
+// the fixed center crosshair should land inside.
+function drawTargetFrame(ctx, cx, cy, w, h, holeR, color) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  roundRectPath(ctx, -w / 2, -h / 2, w, h, 16);
+  ctx.globalAlpha = 0.88;
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.stroke();
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.beginPath();
+  ctx.arc(0, 0, holeR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+}
 
 export class CaptureController {
   constructor({ video, overlayCanvas, tracker, targets, settings, outputWidth, outputHeight }) {
@@ -101,62 +151,87 @@ export class CaptureController {
     return { visible: true, nx, ny, onScreen: Math.abs(nx) <= 1.15 && Math.abs(ny) <= 1.15 };
   }
 
+  // Bottom mini-map: one small rectangle per target, arranged in rows that
+  // mirror the real capture grid (fewer shots near the poles), turning
+  // from fluo blue to white as each one gets captured.
+  _drawMiniMap(ctx, w, h) {
+    if (!this._miniMapRows) this._miniMapRows = buildMiniMapRows(this.targets);
+    const rows = this._miniMapRows;
+    if (!rows.length) return;
+
+    const cw = 13, chh = 17, gapX = 5, gapY = 5, pad = 10;
+    const panelH = rows.length * (chh + gapY) - gapY + pad * 2;
+    const panelW = Math.max(...rows.map((r) => r.length)) * (cw + gapX) - gapX + pad * 2;
+    const panelX = (w - panelW) / 2;
+    const panelY = h - panelH - 110; // clears the bottom action bar
+
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    roundRectPath(ctx, panelX, panelY, panelW, panelH, 12);
+    ctx.fill();
+
+    const current = this.currentIndex >= 0 ? this.targets[this.currentIndex] : null;
+    rows.forEach((row, ri) => {
+      const rowW = row.length * (cw + gapX) - gapX;
+      const startX = panelX + (panelW - rowW) / 2;
+      const y = panelY + pad + ri * (chh + gapY);
+      row.forEach((t, ci) => {
+        const x = startX + ci * (cw + gapX);
+        ctx.fillStyle = t.done ? '#ffffff' : FLUO_BLUE;
+        roundRectPath(ctx, x, y, cw, chh, 3);
+        ctx.fill();
+        if (t === current) {
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = '#ffffff';
+          roundRectPath(ctx, x - 2, y - 2, cw + 4, chh + 4, 4);
+          ctx.stroke();
+        }
+      });
+    });
+  }
+
   _drawOverlay() {
     const canvas = this.overlay;
     const w = canvas.width, h = canvas.height;
     const ctx = this.octx;
     ctx.clearRect(0, 0, w, h);
 
+    this._drawMiniMap(ctx, w, h);
+
     if (this.currentIndex < 0) return;
     const target = this.targets[this.currentIndex];
     const proj = this._projectToView(target.yaw, target.pitch);
 
-    // Roll (level) indicator bar at the bottom. Drawn with a dark outline
-    // behind the colored line so it stays legible against any camera
-    // background (bright sky, white wall, ...), not just by chance.
     const roll = this.tracker.roll || 0;
     const level = Math.abs(roll) <= this.settings.rollLimit;
-    ctx.save();
-    ctx.translate(w / 2, h - 60);
-    const rr = -roll * d2r;
-    const x0 = -70 * Math.cos(rr), y0 = -70 * Math.sin(rr);
-    const x1 = 70 * Math.cos(rr), y1 = 70 * Math.sin(rr);
-    ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 8; ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
-    ctx.strokeStyle = level ? '#3ddc84' : '#ffcc33'; ctx.lineWidth = 4; ctx.stroke();
-    ctx.beginPath(); ctx.arc(0, 0, 5, 0, 7);
-    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fill();
-    ctx.beginPath(); ctx.arc(0, 0, 3.5, 0, 7);
-    ctx.fillStyle = '#ffffff'; ctx.fill();
-    ctx.restore();
 
     let aligned = false;
     if (proj.visible && proj.onScreen) {
       const cx = w / 2 + proj.nx * (w / 2);
-      const cy = h / 2 - proj.ny * (h / 2) * (w / h < 1 ? 1 : 1);
+      const cy = h / 2 - proj.ny * (h / 2);
       const distNorm = Math.max(Math.abs(proj.nx), Math.abs(proj.ny));
       aligned = distNorm <= this.settings.tolerance && level;
-      const ringColor = aligned ? '#3ddc84' : '#ffffff';
-      ctx.beginPath();
-      ctx.arc(cx, cy, 46, 0, Math.PI * 2);
-      ctx.lineWidth = 10;
-      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(cx, cy, 46, 0, Math.PI * 2);
-      ctx.lineWidth = 5;
-      ctx.strokeStyle = ringColor;
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(cx, cy, 5, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = ringColor;
-      ctx.fill();
+
+      const rectW = Math.min(w, h) * 0.42;
+      const rectH = rectW * 1.35;
+      const holeR = rectW * 0.34;
+      const frameColor = aligned ? '#ffffff' : FLUO_BLUE;
+      drawTargetFrame(ctx, cx, cy, rectW, rectH, holeR, frameColor);
+
+      // Once the aim circle is close to the target's hole, show a second
+      // rectangle tracing the phone's *actual current* roll/tilt: the user
+      // rotates the phone until this white outline lines up with the
+      // (axis-aligned) target frame above it.
+      const nearHole = distNorm <= this.settings.tolerance * 2.2;
+      if (nearHole) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(-roll * d2r);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = level ? 'rgba(255,255,255,0.95)' : 'rgba(255,204,51,0.95)';
+        roundRectPath(ctx, -rectW / 2 - 7, -rectH / 2 - 7, rectW + 14, rectH + 14, 18);
+        ctx.stroke();
+        ctx.restore();
+      }
     } else {
       // Off-screen: draw a directional arrow at the edge pointing toward target.
       const angle = Math.atan2(-proj.ny || 0, proj.nx || (angleDiff(target.yaw, this.tracker.yaw) >= 0 ? 1 : -1));
@@ -173,6 +248,17 @@ export class CaptureController {
       ctx.fill();
       ctx.restore();
     }
+
+    // Fixed aim crosshair (bore-sight): always screen-center, drawn last
+    // so it stays on top of the target frame/hole beneath it.
+    ctx.beginPath();
+    ctx.arc(w / 2, h / 2, 15, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(w / 2, h / 2, 11, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
 
     this._emit('progress', {
       done: this.doneCount(), total: this.totalCount(), aligned, level,
