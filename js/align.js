@@ -527,48 +527,89 @@ export async function calibrateFov(shots, options, onProgress) {
 
 // ---------------- exposure equalization ----------------
 
+// Solves, together, a per-shot brightness gain AND one radial vignetting
+// profile shared by every shot (they all come from the same lens).
+//
+// Fitting only per-shot gains, as this used to, cannot see vignetting at
+// all: it compared the AVERAGE brightness of each overlap, which throws
+// away where in the frame each sample sat. That left every frame darker
+// towards its edges. Soft blending used to hide it by averaging
+// overlapping shots together, but once each output pixel is taken from a
+// single shot the profile becomes plainly visible - every shot renders
+// bright at its centre and dark at its rim, so the panorama looks quilted
+// out of tiles. Estimating the profile removes the cause instead.
+//
+// Model: observed = true * G_shot * exp(a * r2), with r2 the squared
+// normalised radius in the frame (1 at a corner). For one world point seen
+// by two shots, the unknown "true" cancels:
+//   log(obs_i) - log(obs_j) = (lgObs_i - lgObs_j) + a * (r2_i - r2_j)
+// which is linear in the per-shot offsets and in a, and is solved by
+// alternating between the two.
 function estimateGains(shots, params) {
-  // Pairwise brightness ratios in the overlaps, solved in log space so
-  // each shot gets a multiplicative gain bringing it in line with its
-  // neighbours (removes the visible brightness banding between shots).
+  const { tanH, tanV, k1 } = params;
   const pairs = [];
+  const STEP = 14;
   for (let i = 0; i < shots.length; i++) {
-    const neighbours = neighboursOf(shots, i, params.hFovDeg);
-    for (const j of neighbours) {
-      if (j < i) continue;
-      const groups = gatherNeighbourSamples(shots, i, [j], params);
-      if (!groups.length) continue;
-      const g = groups[0];
-      let si = 0, sj = 0, cnt = 0;
-      for (let t = 0; t < g.rays.length; t++) {
-        const ideal = idealFromRay(shots[i].basis, g.rays[t], params.tanH, params.tanV);
-        if (!ideal) continue;
-        const vi = sampleGray(shots[i], ideal[0], ideal[1], params.k1);
-        if (vi < 0) continue;
-        si += vi; sj += g.vals[t]; cnt++;
+    for (const j of neighboursOf(shots, i, params.hFovDeg)) {
+      if (j <= i) continue;
+      let n = 0, sLog = 0, sD = 0, sDLog = 0, sDD = 0;
+      for (let a2 = 0; a2 < STEP; a2++) {
+        const nxj = -0.85 + (1.7 * a2) / (STEP - 1);
+        for (let b2 = 0; b2 < STEP; b2++) {
+          const nyj = -0.85 + (1.7 * b2) / (STEP - 1);
+          const vj = sampleGray(shots[j], nxj, nyj, k1);
+          if (vj < 4) continue;
+          const ray = rayFromIdeal(shots[j].basis, nxj, nyj, tanH, tanV);
+          const ideal = idealFromRay(shots[i].basis, ray, tanH, tanV);
+          if (!ideal) continue;
+          const vi = sampleGray(shots[i], ideal[0], ideal[1], k1);
+          if (vi < 4) continue;
+          const r2i = (ideal[0] * ideal[0] + ideal[1] * ideal[1]) / 2;
+          const r2j = (nxj * nxj + nyj * nyj) / 2;
+          const logDiff = Math.log(vi / vj);
+          const dr2 = r2i - r2j;
+          n++; sLog += logDiff; sD += dr2; sDLog += dr2 * logDiff; sDD += dr2 * dr2;
+        }
       }
-      if (cnt < 40) continue;
-      const mi = si / cnt, mj = sj / cnt;
-      if (mi < 4 || mj < 4) continue;
-      pairs.push({ i, j, logRatio: Math.log(mj / mi) }); // lg_i - lg_j = logRatio
+      if (n >= 40) pairs.push({ i, j, n, sLog, sD, sDLog, sDD });
     }
   }
+  if (!pairs.length) return 0;
+
   const lg = new Float64Array(shots.length);
-  for (let iter = 0; iter < 60; iter++) {
-    const sum = new Float64Array(shots.length);
-    const cnt = new Float64Array(shots.length);
-    for (const p of pairs) {
-      sum[p.i] += lg[p.j] + p.logRatio; cnt[p.i]++;
-      sum[p.j] += lg[p.i] - p.logRatio; cnt[p.j]++;
+  let a = 0;
+  for (let outer = 0; outer < 6; outer++) {
+    for (let iter = 0; iter < 40; iter++) {
+      const sum = new Float64Array(shots.length);
+      const cnt = new Float64Array(shots.length);
+      for (const p of pairs) {
+        // lg is the CORRECTION, i.e. the negative of the shot's own offset.
+        const ratio = a * (p.sD / p.n) - (p.sLog / p.n);
+        sum[p.i] += lg[p.j] + ratio; cnt[p.i]++;
+        sum[p.j] += lg[p.i] - ratio; cnt[p.j]++;
+      }
+      for (let i = 0; i < shots.length; i++) if (cnt[i]) lg[i] = sum[i] / cnt[i];
     }
-    for (let i = 0; i < shots.length; i++) if (cnt[i]) lg[i] = sum[i] / cnt[i];
+    let num = 0, den = 0;
+    for (const p of pairs) {
+      const c = -(lg[p.i] - lg[p.j]);
+      num += p.sDLog - c * p.sD;
+      den += p.sDD;
+    }
+    if (den > 1e-9) {
+      // Clamped to physically sensible vignetting: darker towards the rim,
+      // never brighter by much, so a bad fit cannot invent a glow.
+      a = Math.min(0.05, Math.max(-0.6, num / den));
+    }
   }
+
   let mean = 0;
   for (let i = 0; i < shots.length; i++) mean += lg[i];
   mean /= Math.max(1, shots.length);
   shots.forEach((s, i) => {
     s.gain = Math.min(1.5, Math.max(0.67, Math.exp(lg[i] - mean)));
   });
+  return a;
 }
 
 // ---------------- rendering ----------------
@@ -634,13 +675,102 @@ const SEAM_HANDOFF = 0.01;
 // also means most pixels never pay for a bilinear sample at all.
 const SEAM_CUTOFF = SEAM_HANDOFF * 6;
 
+// Low-frequency correction works on a heavily reduced copy of the
+// panorama: exposure and vignetting differences between shots are, by
+// definition, smooth and large-scale, so they survive this reduction
+// intact while all real detail is averaged away.
+const LOW_DIV = 8;
+
+// Separable box blur over a low-resolution RGB field, wrapping in
+// longitude (the panorama joins back on itself) and clamping in latitude.
+function blurLowRGB(src, w, h, radius) {
+  const tmp = new Float32Array(src.length);
+  const out = new Float32Array(src.length);
+  const span = radius * 2 + 1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let r = 0, g = 0, b = 0;
+      for (let k = -radius; k <= radius; k++) {
+        let xx = (x + k) % w; if (xx < 0) xx += w;
+        const i = (y * w + xx) * 3;
+        r += src[i]; g += src[i + 1]; b += src[i + 2];
+      }
+      const o = (y * w + x) * 3;
+      tmp[o] = r / span; tmp[o + 1] = g / span; tmp[o + 2] = b / span;
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let r = 0, g = 0, b = 0;
+      for (let k = -radius; k <= radius; k++) {
+        const yy = Math.min(h - 1, Math.max(0, y + k));
+        const i = (yy * w + x) * 3;
+        r += tmp[i]; g += tmp[i + 1]; b += tmp[i + 2];
+      }
+      const o = (y * w + x) * 3;
+      out[o] = r / span; out[o + 1] = g / span; out[o + 2] = b / span;
+    }
+  }
+  return out;
+}
+
+// Pushes the sharp mosaic's large-scale tone onto that of the seamless
+// smooth blend, leaving its detail untouched. This is what stops a
+// winner-take-all mosaic from looking like a patchwork of differently
+// exposed facets while keeping every bit of its sharpness.
+function applyLowFrequencyCorrection(
+  colorSum, weightSum, outW, outH,
+  softColor, softW, sharpLowColor, sharpLowW, lowW, lowH,
+) {
+  const lowN = lowW * lowH;
+  const diff = new Float32Array(lowN * 3);
+  for (let i = 0; i < lowN; i++) {
+    const a = softW[i], b = sharpLowW[i];
+    if (a <= 0 || b <= 0) continue;
+    for (let c = 0; c < 3; c++) {
+      diff[i * 3 + c] = softColor[i * 3 + c] / a - sharpLowColor[i * 3 + c] / b;
+    }
+  }
+  // Blurred so the correction itself carries no trace of the low-res grid.
+  const smooth = blurLowRGB(diff, lowW, lowH, 2);
+
+  for (let row = 0; row < outH; row++) {
+    const fy = Math.min(lowH - 1, row / LOW_DIV);
+    const y0 = Math.min(lowH - 1, fy | 0), y1 = Math.min(lowH - 1, y0 + 1);
+    const ty = fy - y0;
+    for (let col = 0; col < outW; col++) {
+      const di = row * outW + col;
+      if (weightSum[di] <= 0) continue;
+      const fx = col / LOW_DIV;
+      const x0 = Math.min(lowW - 1, fx | 0), x1 = (x0 + 1) % lowW;
+      const tx = fx - x0;
+      const w = weightSum[di];
+      for (let c = 0; c < 3; c++) {
+        const top = smooth[(y0 * lowW + x0) * 3 + c] * (1 - tx) + smooth[(y0 * lowW + x1) * 3 + c] * tx;
+        const bot = smooth[(y1 * lowW + x0) * 3 + c] * (1 - tx) + smooth[(y1 * lowW + x1) * 3 + c] * tx;
+        colorSum[di * 3 + c] += (top * (1 - ty) + bot * ty) * w;
+      }
+    }
+  }
+}
+
 async function renderEquirect(shots, params, outW, outH, onProgress) {
+  const vignA = params.vignA || 0;
   const n = outW * outH;
   const colorSum = new Float32Array(n * 3);
   const weightSum = new Float32Array(n);
   // Best "quality" any shot achieves for each output pixel, where quality
   // is distance from the frame border (1 dead centre, 0 at the very edge).
   const bestQ = new Float32Array(n).fill(-1);
+
+  const lowW = Math.max(1, Math.ceil(outW / LOW_DIV));
+  const lowH = Math.max(1, Math.ceil(outH / LOW_DIV));
+  const lowN = lowW * lowH;
+  // Same pixels accumulated twice at low resolution: once with the sharp
+  // seam weights, once with a broad smooth weight. Their difference is
+  // exactly the large-scale error the sharp mosaic carries.
+  const softColor = new Float32Array(lowN * 3), softW = new Float32Array(lowN);
+  const sharpLowColor = new Float32Array(lowN * 3), sharpLowW = new Float32Array(lowN);
 
   // --- Pass 1: find, per output pixel, the best any shot can do ---
   for (const shot of shots) {
@@ -651,28 +781,33 @@ async function renderEquirect(shots, params, outW, outH, onProgress) {
     await yieldToUi();
   }
 
-  // --- Pass 2: composite, weighting each shot by how close it comes to
-  // that per-pixel best ---
+  // --- Pass 2: composite ---
   //
   // Weighting relative to the winner, rather than by an absolute function
-  // of position in the frame, is the point. The previous version used
-  // pow(edge, 8), whose *relative* split between two overlapping shots
-  // depends on where in their frames the pixel happens to fall: measured,
-  // edge 0.31 vs 0.30 blends them 57/43 - averaging two views of the same
-  // thing almost equally - while 0.10 vs 0.05 is winner-take-all. So over
-  // much of every overlap, content was a half-and-half average of two
-  // shots; wherever they disagreed (residual misalignment, and parallax,
-  // which no rotation-only model can fix) that average washed detail out
-  // until objects became unrecognisable - reported from a real capture as
-  // monitors missing and a coat rack "you can't tell what it is".
+  // of position in the frame, is what keeps detail intact. The version
+  // before used pow(edge, 8), whose *relative* split between two
+  // overlapping shots depends on where in their frames the pixel happens
+  // to fall: measured, edge 0.31 vs 0.30 blends them 57/43 - averaging two
+  // views of the same thing almost equally - while 0.10 vs 0.05 is
+  // winner-take-all. Over much of every overlap content was therefore a
+  // half-and-half average of two shots, and wherever they disagreed
+  // (residual misalignment, and parallax, which no rotation-only model can
+  // fix) that average washed detail out until objects became
+  // unrecognisable.
   //
-  // Subtracting the per-pixel best first makes the margin needed to win
-  // the same everywhere: a shot only shares a pixel while it is within
-  // SEAM_HANDOFF of the best available, which is a narrow band along the
-  // Voronoi-style seam between neighbouring shots. Everywhere else a
-  // single shot supplies the pixel outright, so detail survives intact,
-  // and the unavoidable 50/50 tie right on the seam is confined to that
-  // thin band instead of spreading across the whole overlap.
+  // But taking each pixel from a single shot has its own failure, and it
+  // is just as visible: consecutive shots do not share an exposure, a
+  // white balance or a vignetting profile, so a hard handover between them
+  // shows up as a mosaic of polygonal facets in slightly different tones -
+  // obvious on any large flat surface like a ceiling. Soft averaging used
+  // to smear those steps into invisibility; that is the one thing it was
+  // good at.
+  //
+  // So both are accumulated, and the result keeps the high frequencies of
+  // the sharp mosaic while borrowing the low frequencies of the smooth
+  // one. Detail comes from a single shot and stays sharp; exposure and
+  // vignetting are carried by the smooth blend and cross seams without a
+  // step.
   const rgb = [0, 0, 0];
   for (let si = 0; si < shots.length; si++) {
     const shot = shots[si];
@@ -682,18 +817,48 @@ async function renderEquirect(shots, params, outW, outH, onProgress) {
     forEachCoveredPixel(shot, params, outW, outH, (di, nx, ny, dx, dy) => {
       const q = 1 - Math.max(Math.abs(nx), Math.abs(ny));
       const behind = bestQ[di] - q;
-      if (behind > SEAM_CUTOFF) return;
-      const weight = behind <= 0 ? 1 : Math.exp(-behind / SEAM_HANDOFF);
+      const sharpW = behind > SEAM_CUTOFF ? 0 : (behind <= 0 ? 1 : Math.exp(-behind / SEAM_HANDOFF));
+      // Broad and smooth, so the low-frequency blend never has a seam of
+      // its own to pass on.
+      const smoothW = q > 0.02 ? 1 : 0;
+      if (sharpW === 0 && smoothW === 0) return;
 
       bilinearRGB(data, sw, sh, (dx * 0.5 + 0.5) * (sw - 1), (0.5 - dy * 0.5) * (sh - 1), rgb);
-      weightSum[di] += weight;
-      colorSum[di * 3] += rgb[0] * gain * weight;
-      colorSum[di * 3 + 1] += rgb[1] * gain * weight;
-      colorSum[di * 3 + 2] += rgb[2] * gain * weight;
+      // Undo the lens's own falloff before anything else, so a pixel means
+      // the same thing wherever in its frame it came from.
+      const k = gain * Math.exp(-vignA * (nx * nx + ny * ny) / 2);
+      const r = rgb[0] * k, g = rgb[1] * k, b = rgb[2] * k;
+
+      if (sharpW > 0) {
+        weightSum[di] += sharpW;
+        colorSum[di * 3] += r * sharpW;
+        colorSum[di * 3 + 1] += g * sharpW;
+        colorSum[di * 3 + 2] += b * sharpW;
+      }
+
+      const row = (di / outW) | 0, col = di - row * outW;
+      const li = ((row / LOW_DIV) | 0) * lowW + ((col / LOW_DIV) | 0);
+      if (smoothW > 0) {
+        softW[li] += smoothW;
+        softColor[li * 3] += r * smoothW;
+        softColor[li * 3 + 1] += g * smoothW;
+        softColor[li * 3 + 2] += b * smoothW;
+      }
+      if (sharpW > 0) {
+        sharpLowW[li] += sharpW;
+        sharpLowColor[li * 3] += r * sharpW;
+        sharpLowColor[li * 3 + 1] += g * sharpW;
+        sharpLowColor[li * 3 + 2] += b * sharpW;
+      }
     });
     if (onProgress) onProgress((si + 1) / shots.length);
     await yieldToUi();
   }
+
+  applyLowFrequencyCorrection(
+    colorSum, weightSum, outW, outH,
+    softColor, softW, sharpLowColor, sharpLowW, lowW, lowH,
+  );
 
   return resolveCanvas(colorSum, weightSum, outW, outH);
 }
@@ -873,7 +1038,7 @@ export async function stitchPanorama(shots, options, onProgress) {
 
   // --- 5. Exposure equalization ---
   if (shots.length >= 2) {
-    estimateGains(shots, params);
+    params.vignA = estimateGains(shots, params);
     report(0.85, 'Égalisation des expositions');
     await yieldToUi();
   }
