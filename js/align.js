@@ -174,15 +174,16 @@ function neighboursOf(shots, i, hFovDeg) {
 function gatherNeighbourSamples(shots, i, neighbours, params) {
   const { tanH, tanV, k1 } = params;
   const groups = [];
-  const STEP = 24;
+  const STEP = 30;
+  const STEP_Y = 22;
   for (const j of neighbours) {
     const other = shots[j];
     const rays = [];
     const vals = [];
     for (let a = 0; a < STEP; a++) {
       const nx = -0.85 + (1.7 * a) / (STEP - 1);
-      for (let b = 0; b < 18; b++) {
-        const ny = -0.85 + (1.7 * b) / 17;
+      for (let b = 0; b < STEP_Y; b++) {
+        const ny = -0.85 + (1.7 * b) / (STEP_Y - 1);
         const v = sampleGray(other, nx, ny, k1);
         if (v < 0) continue;
         rays.push(rayFromIdeal(other.basis, nx, ny, tanH, tanV));
@@ -268,6 +269,7 @@ const REFINE_STAGES = [
   { step: 2, radius: 6, rollStep: 2, rollRadius: 4 },
   { step: 0.75, radius: 1.5, rollStep: 1, rollRadius: 1 },
   { step: 0.25, radius: 0.5, rollStep: 0, rollRadius: 0 },
+  { step: 0.08, radius: 0.16, rollStep: 0, rollRadius: 0 },
 ];
 const QUICK_STAGES = [
   { step: 2, radius: 6, rollStep: 2, rollRadius: 2 },
@@ -498,11 +500,6 @@ function estimateGains(shots, params) {
 
 // ---------------- rendering ----------------
 
-function smoothstep(e0, e1, x) {
-  const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
-  return t * t * (3 - 2 * t);
-}
-
 function bilinearRGB(data, w, h, px, py, out) {
   const x0 = Math.floor(px), y0 = Math.floor(py);
   const x1 = Math.min(w - 1, x0 + 1), y1 = Math.min(h - 1, y0 + 1);
@@ -557,10 +554,27 @@ async function renderEquirect(shots, params, outW, outH, onProgress) {
 
         bilinearRGB(data, sw, sh, (dx * 0.5 + 0.5) * (sw - 1), (0.5 - dy * 0.5) * (sh - 1), rgb);
 
-        // Feather towards the frame edge so overlapping shots cross-fade
-        // instead of showing a hard seam.
-        const edge = 1 - Math.max(Math.abs(nx), Math.abs(ny));
-        const weight = Math.max(0.0002, smoothstep(0, 0.45, edge));
+        // Weight is steep (edge raised to a high power) rather than a
+        // narrow-vs-wide feather band. Measured with a dedicated test
+        // before settling on this: at the true midpoint between two
+        // adjacent shots, both are *by construction* equally far from
+        // their own center, so a plain distance-based feather - however
+        // narrow its transition band is - still lands both shots at
+        // (near-)equal weight right there and blends them 50/50. With any
+        // residual misalignment (a few degrees is normal even after
+        // refinement), that 50/50 blend is exactly the "ghost image"
+        // reported from a real capture: two offset copies of the same
+        // edge, each rendered at partial, near-equal opacity - and
+        // narrowing the band alone doesn't fix it (confirmed: same flat
+        // 50/50 plateau at 0.45, 0.12, and near-binary 0.02 alike, just
+        // wider or narrower). A steep power law stays sensitive across the
+        // *whole* frame instead of saturating to "fully opaque" well
+        // before the midpoint, so the small asymmetry the misalignment
+        // itself introduces is enough to tip the balance decisively
+        // towards whichever shot is even slightly closer - collapsing
+        // most of the wide flat 50/50 zone into a much narrower handoff.
+        const edge = Math.max(0, 1 - Math.max(Math.abs(nx), Math.abs(ny)));
+        const weight = Math.max(0.0002, Math.pow(edge, 8));
 
         const di = row * outW + col;
         weightSum[di] += weight;
