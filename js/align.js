@@ -183,11 +183,7 @@ function neighboursOf(shots, i, hFovDeg) {
     if (c > limit) out.push({ j, c });
   }
   out.sort((a, b) => b.c - a.c);
-  // More neighbours = more redundant evidence pulling each shot toward a
-  // globally consistent position instead of just agreeing with its one or
-  // two closest overlaps - worth the extra matching cost since processing
-  // time isn't constrained tightly here.
-  return out.slice(0, 8).map((o) => o.j);
+  return out.slice(0, 5).map((o) => o.j);
 }
 
 // Collects, once per refinement of shot i, the world rays + greyscale
@@ -347,7 +343,6 @@ const REFINE_STAGES = [
   { step: 0.75, radius: 1.5, rollStep: 1, rollRadius: 1 },
   { step: 0.25, radius: 0.5, rollStep: 0, rollRadius: 0 },
   { step: 0.08, radius: 0.16, rollStep: 0, rollRadius: 0 },
-  { step: 0.03, radius: 0.06, rollStep: 0, rollRadius: 0 },
 ];
 const QUICK_STAGES = [
   { step: 2, radius: 6, rollStep: 2, rollRadius: 2 },
@@ -828,20 +823,13 @@ export async function stitchPanorama(shots, options, onProgress) {
     restoreBases(shots, best.bases);
 
     // --- 4. Full-precision orientation refinement with the final lens model ---
-    // 3 passes (not 2): each shot's refined position shifts its
-    // neighbours' own targets slightly, so an extra pass lets that settle
-    // further into a globally consistent fit - worth it here since a
-    // straight line (a ceiling tile grid, a door frame) makes even a
-    // couple of degrees of residual error obvious in a way a fuzzier
-    // object wouldn't show.
-    const REFINE_PASSES = 3;
-    for (let pass = 0; pass < REFINE_PASSES; pass++) {
+    for (let pass = 0; pass < 2; pass++) {
       const params = makeParams(hFov, k1, shots[0]);
       for (let i = 0; i < shots.length; i++) {
-        refineShotOrientation(shots, i, params, REFINE_STAGES, 5);
+        refineShotOrientation(shots, i, params, REFINE_STAGES, 3);
         if (i % 4 === 0) await yieldToUi();
       }
-      report(0.6 + 0.2 * ((pass + 1) / REFINE_PASSES), `Recalage des photos (passe ${pass + 1}/${REFINE_PASSES})`);
+      report(0.6 + 0.2 * ((pass + 1) / 2), `Recalage des photos (passe ${pass + 1}/2)`);
       await yieldToUi();
     }
   }
