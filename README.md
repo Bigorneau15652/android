@@ -121,14 +121,23 @@ de partage, sans avoir besoin d'un serveur en ligne.
    téléphone pour obtenir la meilleure qualité. Il est ré-accessible à tout
    moment depuis l'accueil via **"ℹ️ Comment bien photographier ?"**.
 1. **Nouvelle capture 360°** → l'appli demande la caméra et le gyroscope,
-   puis affiche le flux caméra avec un viseur : un cadre bleu percé d'un
-   trou à viser avec la mire blanche fixe au centre de l'écran.
+   puis affiche le flux caméra avec un viseur à trois jauges indépendantes,
+   une par mouvement du téléphone, qui doivent toutes passer au vert en
+   même temps pour déclencher la photo :
+   - **L'anneau bleu** (au centre ou sur le côté avec une flèche s'il est
+     hors champ) : oriente-toi (gauche/droite) jusqu'à ce que le point blanc
+     fixe entre dedans.
+   - **La barre du haut** : le niveau. Elle pivote avec le téléphone ;
+     redresse-le jusqu'à ce qu'elle devienne verte fluo.
+   - **La jauge verticale à droite** : l'inclinaison (haut/bas). Le repère
+     glisse vers le haut ou le bas selon qu'il faut lever ou baisser le
+     téléphone ; il devient vert fluo une fois dans la zone.
 2. Elle te guide vers une série de cibles réparties sur la sphère (par
    défaut : 3 rangées + zénith/nadir), en terminant chaque rangée avant de
    passer à la suivante. Pivote sur toi-même lentement, en tenant le
    téléphone à hauteur des yeux et bien droit.
-3. Quand le cadre devient **blanc**, la photo est prise automatiquement (tu
-   peux désactiver l'automatique dans Réglages et appuyer sur 📸
+3. Quand les trois jauges sont **vertes**, la photo est prise automatiquement
+   (tu peux désactiver l'automatique dans Réglages et appuyer sur 📸
    toi-même).
 4. Une fois toutes les cibles couvertes (ou en appuyant sur *Terminer
    maintenant*), l'appli lance le **recalage** : elle compare les photos
@@ -167,7 +176,7 @@ utilises déjà — tu peux l'attacher directement, sans conversion.
   dédoublés.
 - **Pivote sur place**, sans faire un pas de côté, pour la même raison.
 - **Immobilise le téléphone** une fraction de seconde une fois la cible
-  atteinte : l'app attend d'elle-même que le mouvement se calme (le cadre
+  atteinte : l'app attend d'elle-même que le mouvement se calme (l'anneau
   passe en orange tant que ça bouge), mais un mouvement continu retarde
   chaque prise.
 - **Évite les sujets qui bougent** (personnes qui marchent) : ils

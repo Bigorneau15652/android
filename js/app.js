@@ -374,7 +374,8 @@ async function goToCapture() {
   const ctrl = new CaptureController({
     video, overlayCanvas: overlay, tracker, targets,
     settings: {
-      hFov: fov, deviceId: settings.deviceId, tolerance: 0.22, autoCapture: settings.autoCapture,
+      hFov: fov, deviceId: settings.deviceId,
+      yawToleranceDeg: 10, pitchToleranceDeg: 10, autoCapture: settings.autoCapture,
       // Longer hold + a steadiness requirement: a frame grabbed while the
       // phone is still swinging is blurred and mis-tagged, which no amount
       // of post-processing can undo.
@@ -391,10 +392,13 @@ async function goToCapture() {
     return;
   }
 
-  ctrl.on('progress', ({ done, total, aligned, level, steady }) => {
+  ctrl.on('progress', ({ done, total, aligned, rollOk, pitchOk, steady }) => {
     progressEl.textContent = `${done} / ${total}`;
-    if (!level) {
-      captureBanner.textContent = '📱 Tiens le téléphone bien droit (à plat sur l\'axe vertical).';
+    if (!rollOk) {
+      captureBanner.textContent = '📱 Nivelle le téléphone : aligne la barre du haut (en vert quand c\'est bon).';
+      captureBanner.classList.remove('hidden');
+    } else if (!pitchOk) {
+      captureBanner.textContent = '↕️ Ajuste l\'inclinaison avec la jauge de droite (en vert quand c\'est bon).';
       captureBanner.classList.remove('hidden');
     } else if (!steady) {
       captureBanner.textContent = '✋ Immobilise le téléphone un instant…';

@@ -7,7 +7,7 @@
 // lens FOV - impossible once they've been flattened into one buffer.
 
 import { angleDiff } from './orientation.js';
-import { prepareShot, verticalFovFromHorizontal } from './align.js';
+import { prepareShot } from './align.js';
 
 // Stored frame size. Big enough that a shot still out-resolves its slice
 // of a 4096-wide equirect output, small enough that a dense grid stays
@@ -119,6 +119,7 @@ export class CalibrationCapture {
 }
 
 const FLUO_BLUE = '#12e1ff';
+const FLUO_GREEN = '#39ff6a';
 
 // Groups targets into the rows the on-screen mini-map draws: zenith (if
 // present) on top, then each pitch row high-to-low sorted by yaw, then
@@ -147,25 +148,45 @@ function roundRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// Target reticle: a rounded rectangle with a circular hole punched out
-// (via destination-out, revealing the live camera feed through it) that
-// the fixed center crosshair should land inside.
-function drawTargetFrame(ctx, cx, cy, w, h, holeR, color) {
+// Yaw target: a thick ring the fixed center dot must slide into. A dark
+// halo is drawn behind the colored ring so it stays visible against both
+// bright and dark camera backgrounds.
+function drawRing(ctx, cx, cy, r, thickness, color) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.lineWidth = thickness + 5;
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.lineWidth = thickness;
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.92;
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Off-screen yaw target: a real arrow (shaft + single head), not a bare
+// triangle - a triangle's three corners each look like they could be "the"
+// point, which is exactly what made the old off-screen indicator ambiguous.
+// Only ever points left or right now that the ring handles yaw alone, so
+// there's no diagonal case to get wrong.
+function drawHorizontalArrow(ctx, w, h, dir) {
+  const cy = h / 2;
+  const cx = dir > 0 ? w - 66 : 66;
   ctx.save();
   ctx.translate(cx, cy);
-  roundRectPath(ctx, -w / 2, -h / 2, w, h, 16);
-  ctx.globalAlpha = 0.88;
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-  ctx.stroke();
-  ctx.globalCompositeOperation = 'destination-out';
+  if (dir < 0) ctx.scale(-1, 1);
   ctx.beginPath();
-  ctx.arc(0, 0, holeR, 0, Math.PI * 2);
+  ctx.moveTo(-26, -7); ctx.lineTo(6, -7); ctx.lineTo(6, -18); ctx.lineTo(30, 0);
+  ctx.lineTo(6, 18); ctx.lineTo(6, 7); ctx.lineTo(-26, 7);
+  ctx.closePath();
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.fillStyle = '#ffcc33';
   ctx.fill();
-  ctx.globalCompositeOperation = 'source-over';
   ctx.restore();
 }
 
@@ -182,8 +203,7 @@ export class CaptureController {
     // the camera's starting orientation instead of defaulting to row 0 of
     // the grid array (which happens to be the top pitch row).
     this.currentIndex = -1;
-    this.settings = settings; // { hFov, tolerance, autoCapture, holdMs, rollLimit, steadyLimit }
-    this.vFov = verticalFovFromHorizontal(settings.hFov, STORE_W, STORE_H);
+    this.settings = settings; // { hFov, yawToleranceDeg, pitchToleranceDeg, autoCapture, holdMs, rollLimit, steadyLimit }
     this.shots = [];
     this.stream = null;
     this._running = false;
@@ -264,20 +284,6 @@ export class CaptureController {
     requestAnimationFrame(() => this._loop());
   }
 
-  _projectToView(targetYaw, targetPitch) {
-    const yaw = this.tracker.yaw, pitch = this.tracker.pitch;
-    const phi1 = pitch * d2r, phi = targetPitch * d2r;
-    const dLambda = angleDiff(targetYaw, yaw) * d2r;
-    const cosc = Math.sin(phi1) * Math.sin(phi) + Math.cos(phi1) * Math.cos(phi) * Math.cos(dLambda);
-    if (cosc <= 0.05) return { visible: false };
-    const x = (Math.cos(phi) * Math.sin(dLambda)) / cosc;
-    const y = (Math.cos(phi1) * Math.sin(phi) - Math.sin(phi1) * Math.cos(phi) * Math.cos(dLambda)) / cosc;
-    const tanHalfH = Math.tan((this.settings.hFov / 2) * d2r);
-    const tanHalfV = Math.tan((this.vFov / 2) * d2r);
-    const nx = x / tanHalfH, ny = y / tanHalfV;
-    return { visible: true, nx, ny, onScreen: Math.abs(nx) <= 1.15 && Math.abs(ny) <= 1.15 };
-  }
-
   // Bottom mini-map: one small rectangle per target, arranged in rows that
   // mirror the real capture grid (fewer shots near the poles), turning
   // from fluo blue to white as each one gets captured.
@@ -342,6 +348,91 @@ export class CaptureController {
     }
   }
 
+  // Horizontal bar (roulis/roll): a fixed dashed reference line plus a
+  // solid bar that rotates with the phone's actual roll, exactly like a
+  // real spirit level - turn the phone until the solid bar lies flat on
+  // the dashed one. Turns fluo green once level, independently of yaw/pitch.
+  _drawLevelBar(ctx, w, h, roll, rollOk) {
+    const barW = Math.min(w, h) * 0.5;
+    // Below the top icon bar (~64px) *and* the guidance banner that can
+    // show right above it (up to ~140px, wrapped to two lines on a narrow
+    // screen) - drawing it any higher gets it hidden under that banner
+    // exactly when rollOk is false, i.e. exactly when it's needed most.
+    const cx = w / 2, cy = 170;
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 6]);
+    ctx.beginPath();
+    ctx.moveTo(cx - barW / 2, cy); ctx.lineTo(cx + barW / 2, cy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.translate(cx, cy);
+    ctx.rotate(-roll * d2r);
+    const color = rollOk ? FLUO_GREEN : '#141414';
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+    ctx.beginPath(); ctx.moveTo(-barW / 2, 0); ctx.lineTo(barW / 2, 0); ctx.stroke();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = color;
+    ctx.beginPath(); ctx.moveTo(-barW / 2, 0); ctx.lineTo(barW / 2, 0); ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(-barW / 2, 0, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(barW / 2, 0, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Vertical bar (inclinaison/pitch): a track on the screen's right edge
+  // with a marker sliding up when the target's row needs more upward tilt,
+  // down when it needs less - independent of yaw, since a whole row shares
+  // the same target pitch and this stays valid while sweeping across it.
+  // Kept entirely in the top-right corner, well clear of the row the ring
+  // travels along (screen vertical center) - the ring's on-screen range
+  // can get close to either screen edge, and a track spanning the center
+  // row would visually collide with it there. Living in its own strip
+  // above the ring's row means the two can never overlap regardless of
+  // how far the ring has slid horizontally.
+  _drawTiltBar(ctx, w, h, pitchError, pitchOk) {
+    const maxRangeDeg = 30;
+    const trackH = Math.min(h * 0.16, 120);
+    const x = w - 40;
+    const cy = 170; // same height as the level bar, opposite side of the screen
+    const y0 = cy - trackH / 2, y1 = cy + trackH / 2;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+    ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1); ctx.stroke();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(20,20,20,0.9)';
+    ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1); ctx.stroke();
+
+    // Sweet-spot band, sized from the actual tolerance so it's an honest
+    // preview of how much slack there is, not just a fixed decoration.
+    const tolFrac = Math.min(1, this.settings.pitchToleranceDeg / maxRangeDeg);
+    const bandHalf = (trackH / 2) * tolFrac;
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(57,255,106,0.35)';
+    ctx.beginPath(); ctx.moveTo(x, cy - bandHalf); ctx.lineTo(x, cy + bandHalf); ctx.stroke();
+
+    // pitchError > 0 means the target sits above the current aim -> marker
+    // above center, telling the user which way to tilt to chase it.
+    const clamped = Math.max(-maxRangeDeg, Math.min(maxRangeDeg, pitchError));
+    const my = cy - (clamped / maxRangeDeg) * (trackH / 2);
+    ctx.beginPath();
+    ctx.arc(x, my, 11, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, my, 8, 0, Math.PI * 2);
+    ctx.fillStyle = pitchOk ? FLUO_GREEN : '#ffffff';
+    ctx.fill();
+    ctx.restore();
+  }
+
   _drawOverlay() {
     const canvas = this.overlay;
     const w = canvas.width, h = canvas.height;
@@ -353,88 +444,54 @@ export class CaptureController {
 
     if (this.currentIndex < 0) return;
     const target = this.targets[this.currentIndex];
-    const proj = this._projectToView(target.yaw, target.pitch);
 
+    // Three independent gauges, one rotation axis each, so correcting one
+    // never visually disturbs the others: yaw (ring), pitch (tilt bar),
+    // roll (level bar). All three must read "good" at once (plus holding
+    // still) before a shot is taken.
     const roll = this.tracker.roll || 0;
-    const level = Math.abs(roll) <= this.settings.rollLimit;
+    const rollOk = Math.abs(roll) <= this.settings.rollLimit;
+
+    const pitchError = target.pitch - this.tracker.pitch;
+    const pitchOk = Math.abs(pitchError) <= this.settings.pitchToleranceDeg;
+
+    const dYaw = angleDiff(target.yaw, this.tracker.yaw);
+    const yawOk = Math.abs(dYaw) <= this.settings.yawToleranceDeg;
+
     const steady = this._angSpeed <= this.settings.steadyLimit;
+    const aligned = yawOk && pitchOk && rollOk && steady;
 
-    let aligned = false;
-    if (proj.visible && proj.onScreen) {
-      const cx = w / 2 + proj.nx * (w / 2);
-      const cy = h / 2 - proj.ny * (h / 2);
-      // Euclidean, to match the circular hole drawn below: a point that
-      // visually looks inside the hole must always count as aligned, or
-      // the guide feels broken ("I put the dot in the hole and nothing
-      // happens"). Deriving holeR from the same tolerance value (scaled by
-      // the smaller screen dimension) guarantees that.
-      const distNorm = Math.sqrt(proj.nx * proj.nx + proj.ny * proj.ny);
-      const onTarget = distNorm <= this.settings.tolerance && level;
-      aligned = onTarget && steady;
-
-      const rectW = Math.min(w, h) * 0.42;
-      const rectH = rectW * 1.35;
-      const holeR = this.settings.tolerance * (Math.min(w, h) / 2);
+    // Ring stays purely horizontal: its screen x comes only from the yaw
+    // difference (a plain single-angle gnomonic projection, pitch is never
+    // part of this), its y is fixed at screen center.
+    //
+    // The on-screen check must compare nx itself against the screen-space
+    // bound (not dYaw in degrees against an angular bound) - tan() is
+    // nonlinear, so those two comparisons diverge well before the edge of
+    // the screen, letting the ring silently render far outside the canvas
+    // with no arrow ever appearing to replace it. The <90 degree guard
+    // additionally stops tan()'s sign flip past the asymptote from making
+    // a target almost directly behind the phone look like a small,
+    // "on-screen" nx.
+    const tanHalfH = Math.tan((this.settings.hFov / 2) * d2r);
+    const nx = Math.abs(dYaw) < 85 ? Math.tan(dYaw * d2r) / tanHalfH : Infinity;
+    if (Math.abs(nx) <= 1.15) {
+      const cx = w / 2 + nx * (w / 2);
+      const cy = h / 2;
+      const ringR = Math.min(w, h) * 0.14;
       // Amber while the aim is right but the phone is still moving, so the
       // wait reads as "hold still" rather than as the guide being broken.
-      const frameColor = aligned ? '#ffffff' : (onTarget ? '#ffcc33' : FLUO_BLUE);
-      drawTargetFrame(ctx, cx, cy, rectW, rectH, holeR, frameColor);
-
-      // Once the aim circle is close to the target's hole, show a second
-      // rectangle tracing the phone's *actual current* roll/tilt: the user
-      // rotates the phone until this white outline lines up with the
-      // (axis-aligned) target frame above it.
-      const nearHole = distNorm <= this.settings.tolerance * 2.2;
-      if (nearHole) {
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate(-roll * d2r);
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = level ? 'rgba(255,255,255,0.95)' : 'rgba(255,204,51,0.95)';
-        roundRectPath(ctx, -rectW / 2 - 7, -rectH / 2 - 7, rectW + 14, rectH + 14, 18);
-        ctx.stroke();
-        ctx.restore();
-      }
+      const ringColor = aligned ? '#ffffff' : (yawOk ? '#ffcc33' : FLUO_BLUE);
+      drawRing(ctx, cx, cy, ringR, 12, ringColor);
     } else {
-      // Off-screen: draw a directional arrow at the edge pointing toward
-      // target. Worked entirely in canvas pixel space (+x = right, +y =
-      // down) to avoid the math-convention/screen-convention sign mixing
-      // that previously made the arrow point vertically backwards (it used
-      // atan2(-ny, nx) for the angle but then *also* negated sin(angle)
-      // when placing it on screen, double-flipping the vertical sign).
-      //
-      // Beyond ~87 degrees of separation the gnomonic projection is
-      // undefined (proj.visible is false) - fall back to a plain yaw/pitch
-      // bearing so the arrow still points up/down as well as left/right.
-      let dx, dy;
-      if (proj.visible) {
-        dx = proj.nx;
-        dy = -proj.ny; // +ny (target above) -> screen up -> negative canvas dy
-      } else {
-        dx = angleDiff(target.yaw, this.tracker.yaw);
-        dy = -(target.pitch - this.tracker.pitch);
-      }
-      const mag = Math.hypot(dx, dy) || 1;
-      const ux = dx / mag, uy = dy / mag;
-      const R = w / 2 - 60;
-      const rx = w / 2 + ux * R;
-      const ry = h / 2 + uy * R;
-      const rot = Math.atan2(uy, ux); // canvas rotate: local +x maps to (cos,sin) = (ux,uy)
-
-      ctx.save();
-      ctx.translate(rx, ry);
-      ctx.rotate(rot);
-      ctx.beginPath();
-      ctx.moveTo(20, 0); ctx.lineTo(-14, 14); ctx.lineTo(-14, -14);
-      ctx.closePath();
-      ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 4; ctx.stroke();
-      ctx.fillStyle = '#ffcc33';
-      ctx.fill();
-      ctx.restore();
+      drawHorizontalArrow(ctx, w, h, dYaw > 0 ? 1 : -1);
     }
 
-    // Fixed aim crosshair (bore-sight): always screen-center, drawn last
-    // so it stays on top of the target frame/hole beneath it.
+    this._drawLevelBar(ctx, w, h, roll, rollOk);
+    this._drawTiltBar(ctx, w, h, pitchError, pitchOk);
+
+    // Fixed aim dot (bore-sight): always screen-center, drawn last so it
+    // stays on top of the ring.
     ctx.beginPath();
     ctx.arc(w / 2, h / 2, 15, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
@@ -445,8 +502,8 @@ export class CaptureController {
     ctx.fill();
 
     this._emit('progress', {
-      done: this.doneCount(), total: this.totalCount(), aligned, level, steady,
-      rowPitch: target.pitch,
+      done: this.doneCount(), total: this.totalCount(), aligned,
+      yawOk, pitchOk, rollOk, steady, rowPitch: target.pitch,
     });
 
     if (aligned && this.settings.autoCapture) {
