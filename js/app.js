@@ -7,7 +7,7 @@ import { buildStandaloneViewer } from './export.js';
 
 const SETTINGS_KEY = 'photo360-settings-v1';
 const DEFAULT_SETTINGS = {
-  density: 'standard',
+  density: 'complet',
   poles: true,
   fov: 66,
   output: '2048x1024',
@@ -51,10 +51,19 @@ document.querySelectorAll('[data-back]').forEach((btn) => {
 });
 
 // ---------------- settings ----------------
+// Capture modes that no longer exist, mapped to their closest replacement -
+// a stored value from an older version must not leave the app with a
+// density preset that cannot be resolved.
+const RETIRED_DENSITIES = { standard: 'complet', rapide: 'panoramique' };
+
 function loadSettings() {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    if (raw) {
+      const s = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      if (RETIRED_DENSITIES[s.density]) s.density = RETIRED_DENSITIES[s.density];
+      return s;
+    }
   } catch (e) {}
   return { ...DEFAULT_SETTINGS };
 }
@@ -367,13 +376,9 @@ async function goToCapture() {
   overlay.width = window.innerWidth;
   overlay.height = window.innerHeight;
 
-  // Grid density is derived from the *selected lens's* field of view, so a
-  // wide-angle lens automatically needs fewer shots and a tele more.
   const fov = currentFov();
-  const targets = buildGrid(settings.density, fov, settings.poles);
-
   const ctrl = new CaptureController({
-    video, overlayCanvas: overlay, tracker, targets,
+    video, overlayCanvas: overlay, tracker, targets: [],
     settings: {
       hFov: fov, deviceId: settings.deviceId,
       yawToleranceDeg: 10, pitchToleranceDeg: 10, autoCapture: settings.autoCapture,
@@ -392,6 +397,14 @@ async function goToCapture() {
     prepFail("Accès caméra refusé ou indisponible. Autorise la caméra pour ce site puis réessaie.");
     return;
   }
+
+  // Built only now, because it depends on two things the camera has to be
+  // running to know: the selected lens's field of view (so a wide-angle
+  // needs fewer shots and a tele more) and the shape of the frames this
+  // camera actually delivers - holding the phone upright puts the lens's
+  // wide field of view on the vertical axis, which changes how many rows
+  // are needed to overlap properly.
+  ctrl.setTargets(buildGrid(settings.density, fov, settings.poles, ctrl.frameAspect()));
 
   ctrl.on('progress', ({ done, total, aligned, rollOk, pitchOk, steady }) => {
     progressEl.textContent = `${done} / ${total}`;

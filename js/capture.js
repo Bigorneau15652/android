@@ -9,12 +9,31 @@
 import { angleDiff } from './orientation.js';
 import { prepareShot } from './align.js';
 
-// Stored frame size. Big enough that a shot still out-resolves its slice
-// of a 4096-wide equirect output, small enough that a dense grid stays
-// well inside a phone browser's memory budget (~1.2MB per shot).
-// Exported because the capture grid's row spacing has to be derived from
-// this frame's vertical field of view, which depends on its aspect ratio.
-export const STORE_W = 640, STORE_H = 480;
+// Longest side of a stored frame. Big enough that a shot still out-resolves
+// its slice of a 4096-wide equirect output, small enough that a dense grid
+// stays well inside a phone browser's memory budget (~1.2MB per shot). The other side follows the camera's own
+// aspect ratio - see frameSizeFor.
+const STORE_LONG = 640;
+
+// Stored frame size for whatever the camera actually delivers.
+//
+// This used to be a fixed 640x480 that every frame was stretched into,
+// which was wrong whenever the camera hands back a portrait frame - and the
+// app asks the user to hold the phone upright, so that is the common case
+// on Android. Squashing a 3:4 frame into 4:3 scales it by 1.78 in one axis
+// only, which makes the derived vertical field of view badly wrong and
+// cannot be undone downstream: the aligner may only rotate shots, and no
+// rotation is an anisotropic scale. Keeping the true aspect means the
+// optical model matches the pixels it is given, whichever way round the
+// camera reports them.
+export function frameSizeFor(video) {
+  const vw = video.videoWidth || 640;
+  const vh = video.videoHeight || 480;
+  if (vw >= vh) {
+    return { w: STORE_LONG, h: Math.max(1, Math.round(STORE_LONG * (vh / vw))) };
+  }
+  return { w: Math.max(1, Math.round(STORE_LONG * (vw / vh))), h: STORE_LONG };
+}
 const d2r = Math.PI / 180;
 
 // Lists the phone's rear cameras (ultra-wide / main / tele are separate
@@ -72,8 +91,9 @@ export class CalibrationCapture {
     this._running = false;
     this._lastForward = null;
     this._canvas = document.createElement('canvas');
-    this._canvas.width = STORE_W;
-    this._canvas.height = STORE_H;
+    // Sized on the first grab, once the video has real dimensions.
+    this._canvas.width = 0;
+    this._canvas.height = 0;
     this._ctx = this._canvas.getContext('2d', { willReadFrequently: true });
     this.onFrame = null;
     this.onDone = null;
@@ -102,9 +122,15 @@ export class CalibrationCapture {
   _grab() {
     const f = this.tracker.forwardVec;
     if (!f) return;
-    this._ctx.drawImage(this.video, 0, 0, STORE_W, STORE_H);
+    if (!this._canvas.width) {
+      const size = frameSizeFor(this.video);
+      this._canvas.width = size.w;
+      this._canvas.height = size.h;
+    }
+    const cw = this._canvas.width, ch = this._canvas.height;
+    this._ctx.drawImage(this.video, 0, 0, cw, ch);
     this.shots.push({
-      imageData: this._ctx.getImageData(0, 0, STORE_W, STORE_H),
+      imageData: this._ctx.getImageData(0, 0, cw, ch),
       basis: {
         right: this.tracker.rightVec.slice(),
         up: this.tracker.upVec.slice(),
@@ -216,8 +242,10 @@ export class CaptureController {
     this._prevT = 0;
     this.listeners = { progress: [], shot: [], done: [], error: [] };
     this._shotCanvas = document.createElement('canvas');
-    this._shotCanvas.width = STORE_W;
-    this._shotCanvas.height = STORE_H;
+    // Real size is set in startCamera, once the camera's own aspect ratio
+    // is known; a shot must never be stretched into an assumed shape.
+    this._shotCanvas.width = 0;
+    this._shotCanvas.height = 0;
     this._shotCtx = this._shotCanvas.getContext('2d', { willReadFrequently: true });
   }
 
@@ -228,6 +256,26 @@ export class CaptureController {
     this.stream = await openCameraStream(this.settings.deviceId);
     this.video.srcObject = this.stream;
     await this.video.play();
+    // Dimensions are only meaningful once the stream is actually running.
+    const size = frameSizeFor(this.video);
+    this._shotCanvas.width = size.w;
+    this._shotCanvas.height = size.h;
+  }
+
+  // Aspect (height / width) of the frames this camera actually produces.
+  // The capture grid's row spacing depends on it, so it can only be built
+  // after startCamera.
+  frameAspect() {
+    return this._shotCanvas.height / this._shotCanvas.width;
+  }
+
+  // The grid can only be computed once the camera's aspect is known, so it
+  // is supplied after construction rather than up front.
+  setTargets(targets) {
+    this.targets = targets.map((t) => ({ ...t, done: false }));
+    this.currentIndex = -1;
+    this._miniMapRows = null;
+    this._alignedSince = null;
   }
 
   stopCamera() {
@@ -539,8 +587,9 @@ export class CaptureController {
       forward: this.tracker.forwardVec.slice(),
     };
 
-    this._shotCtx.drawImage(this.video, 0, 0, STORE_W, STORE_H);
-    const imageData = this._shotCtx.getImageData(0, 0, STORE_W, STORE_H);
+    const cw = this._shotCanvas.width, ch = this._shotCanvas.height;
+    this._shotCtx.drawImage(this.video, 0, 0, cw, ch);
+    const imageData = this._shotCtx.getImageData(0, 0, cw, ch);
     this.shots.push(prepareShot(imageData, basis, { yaw: target.yaw, pitch: target.pitch }));
 
     target.done = true;

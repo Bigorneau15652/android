@@ -168,66 +168,78 @@ Le fichier produit est un **JPG classique** (image équirectangulaire) :
 c'est exactement le format attendu par le widget Grist Pannellum que tu
 utilises déjà — tu peux l'attacher directement, sans conversion.
 
-## Quel mode choisir (important pour la qualité)
+## Quel mode choisir
 
 Dans **Réglages → Densité de la grille de capture** :
 
-- **Panoramique cylindrique** — une seule rangée à hauteur des yeux, sans
-  plafond ni sol (~10 photos pour un objectif principal). **C'est le mode à
-  privilégier si ce qui t'intéresse, ce sont les murs** : tableaux, écrans,
-  fenêtres, mobilier. Il évite d'un coup l'essentiel de ce qui rend une
-  sphère complète difficile :
-  - il n'y a **aucune rangée à recaler sur une autre** — la principale
-    source d'erreur restante disparaît par construction ;
-  - tes propres pieds n'apparaissent jamais ;
-  - le sol et le plafond, qui sont à la fois les surfaces les plus proches
-    de l'objectif et les plus obliques — donc de très loin les pires pour la
-    parallaxe — ne sont simplement pas photographiés.
+- **Panoramique — murs seuls** (~10 photos) : une seule rangée à hauteur des
+  yeux, sans plafond ni sol. C'est le mode **le plus net et le plus rapide** :
+  aucune rangée à recaler sur une autre, tes pieds n'apparaissent jamais, et
+  le sol et le plafond — les surfaces les plus proches de l'objectif et les
+  plus obliques, donc de très loin les pires pour la parallaxe — ne sont pas
+  photographiés. En contrepartie ils sont comblés en étirant les pixels
+  voisins, ce qui donne un rendu irréaliste si on regarde en haut ou en bas.
+- **Panoramique + plafond et sol** (~24–28 photos, *par défaut*) : la même
+  bande, plus les anneaux haut/bas et les photos zénith et nadir, pour que
+  le plafond et le sol soient **réellement photographiés**.
+- **Fine** : idem avec plus de recouvrement partout.
 
-  Mesuré sur une scène de test : fidélité équivalente dans la bande des murs
-  (0,835 contre 0,856 pour la sphère complète), mais **pire cas meilleur**
-  (0,68 contre 0,61) et **netteté supérieure** (1,15 : chaque pixel final
-  reçoit plus de pixels d'origine, puisque chaque photo couvre une zone plus
-  petite). Le tout en 10 photos au lieu de 28 et 2,3 s de traitement au lieu
-  de 12 s. En conditions réelles l'écart devrait être encore plus favorable,
-  puisque le test de laboratoire ne simule pas la parallaxe, que ce mode
-  réduit fortement.
+### Pourquoi il faut des anneaux intermédiaires
 
-  En contrepartie, plafond et sol sont comblés en étirant les pixels les plus
-  proches au lieu d'être de vrais détails.
-
-- **Standard — sphère complète** (~28 photos) : à choisir quand tu as
-  réellement besoin de voir le plafond et le sol.
-
-- **Rapide** / **Fine** : variantes plus légère et plus dense.
+Une bande + 2 photos (zénith, nadir) **ne suffit pas** à couvrir la sphère.
+Avec un objectif principal typique, la bande atteint environ ±27° et une
+photo au zénith ne redescend que jusqu'à 63° : il reste un large anneau
+jamais photographié entre les deux. Les anneaux intermédiaires servent
+exactement à combler ce trou — ce ne sont pas un supplément optionnel.
 
 ## Pourquoi autant de photos
 
 Les rangées ne sont **pas** à un écart fixe : leur espacement est calculé
-d'après l'angle de champ *vertical* de l'objectif, exactement comme
+d'après l'angle de champ *vertical* réellement disponible, exactement comme
 l'espacement horizontal l'est d'après l'angle horizontal.
 
 C'est essentiel, et ça a été une vraie source de défauts. Une version
 précédente espaçait les rangées de 45° quel que soit l'objectif. Or un
-objectif principal typique (68° horizontal) ne voit que ~54° en vertical
-sur un capteur 4:3 : deux rangées ne partageaient donc que **16%** de
-contenu commun, contre 35% horizontalement — et avec un téléobjectif plus
-étroit, elles ne se touchaient carrément plus.
+objectif principal typique (68° horizontal) ne voit que ~54° en vertical sur
+un capteur 4:3 : deux rangées ne partageaient donc que **16%** de contenu
+commun, contre 35% horizontalement — et avec un téléobjectif plus étroit,
+elles ne se touchaient carrément plus.
 
 Pourquoi ça compte : les rangées sont photographiées l'une après l'autre,
-donc le gyroscope a déjà dérivé quand tu commences la suivante. Pour
-annuler cette dérive, l'app doit comparer du contenu **commun** entre
-rangées. Avec seulement 16% de recouvrement — moins les 2 à 3° d'erreur
-que porte chaque photo — il ne restait presque rien à comparer, et les
-rangées restaient décalées les unes par rapport aux autres. Le symptôme
-visible : un même objet apparaissant à plusieurs hauteurs, chaque copie
-décalée horizontalement d'une valeur différente (l'armoire en trois
-exemplaires, plus à droite en haut, plus à gauche en bas).
+donc le gyroscope a déjà dérivé quand tu commences la suivante. Pour annuler
+cette dérive, l'app doit comparer du contenu **commun** entre rangées. Avec
+seulement 16% de recouvrement — moins les 2 à 3° d'erreur que porte chaque
+photo — il ne restait presque rien à comparer, et les rangées restaient
+décalées les unes par rapport aux autres. Le symptôme visible : un même
+objet apparaissant à plusieurs hauteurs, chaque copie décalée
+horizontalement d'une valeur différente. Mesuré : **14° d'écart entre la
+rangée du haut et celle du bas, contre 5°** une fois les rangées
+correctement superposées.
 
-Mesuré : **14° d'écart de lacet entre la rangée du haut et celle du bas,
-contre 5° une fois les rangées correctement superposées** (erreur moyenne
-d'orientation 4,7° → 2,8°). Le coût est d'environ 6 photos de plus (22 →
-28 pour un objectif principal) — largement rentable.
+### Et l'orientation du téléphone dans tout ça
+
+L'app lit désormais la **forme réelle** des images que la caméra fournit,
+au lieu de supposer du 4:3 couché. Ça compte doublement :
+
+- Une version précédente écrasait toute image dans un cadre 4:3 fixe. Si la
+  caméra livrait une image portrait — et l'app te demande justement de tenir
+  le téléphone droit — elle était comprimée d'un facteur 1,78 sur un seul
+  axe. Aucun recalage ne peut rattraper ça : l'assembleur n'a le droit que
+  de *tourner* les photos, et aucune rotation n'est un écrasement.
+- Tenu droit, l'objectif met son **grand** angle de champ sur l'axe
+  vertical. Pour un même objectif et 3 rangées + pôles, le recouvrement
+  vertical passe de 16% (couché) à 34% (droit).
+
+Le nombre total de photos, lui, ne dépend pas de l'orientation : il est fixé
+par la surface de sphère à couvrir divisée par celle que voit une photo.
+Le minimum théorique, sans aucun recouvrement, est d'environ **12 photos** ;
+il en faut ~24–28 pour garder un recouvrement exploitable.
+
+À titre de comparaison, une application professionnelle fait le même travail
+en 22 photos. L'écart vient de la méthode de recalage : la nôtre compare des
+zones d'image entre elles (corrélation) et a besoin d'environ 30% de
+recouvrement pour être fiable, là où un moteur professionnel détecte des
+points caractéristiques et se contente de 16%.
 
 ## À propos du message « couverture incomplète »
 

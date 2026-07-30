@@ -19,32 +19,29 @@
 // overlap).
 
 import { verticalFovFromHorizontal } from './align.js';
-import { STORE_W, STORE_H } from './capture.js';
 
 export const DENSITY_PRESETS = {
-  // Horizon band only: deliberately the fewest shots, accepting that
-  // everything well above/below eye level is left to the pole shots (or
-  // stretched, if those are disabled too).
-  rapide: { overlapH: 0.30, horizonOnly: true },
-  // Single row, generous horizontal overlap, and zenith/nadir forced off:
-  // a cylindrical panorama of the walls rather than a full sphere.
-  //
-  // This is the projection dedicated phone "panorama" modes use, and it
-  // sidesteps most of what makes a full sphere hard: there are no rows to
-  // register against each other (the single largest error source left), the
-  // photographer's own feet never appear, and the floor and ceiling - which
-  // are both the closest surfaces to the lens and the most obliquely viewed,
-  // so by far the worst for parallax - are simply not photographed. The
-  // trade is that ceiling and floor end up stretched from the nearest
-  // captured pixels instead of being real detail.
+  // Eye-level band only, no zenith/nadir: a cylindrical panorama of the
+  // walls. No rows to register against each other (the largest error source
+  // in a multi-row capture), the photographer's feet never appear, and the
+  // floor and ceiling - the closest surfaces to the lens and the most
+  // obliquely viewed, so by far the worst for parallax - are not
+  // photographed at all. The trade is that they end up stretched from the
+  // nearest captured pixels rather than being real detail.
   panoramique: { overlapH: 0.45, horizonOnly: true, forceNoPoles: true },
-  // overlapV is a *minimum*; the achieved overlap is usually higher, since
-  // the row count is an integer and the span gets divided evenly. 0.28 is
-  // tuned so a typical phone main lens (66-68 degrees) lands on 4 rows /
-  // 28 shots while actually achieving ~33-36% - asking for 0.32 here tips
-  // it to 5 rows / 34 shots for no real gain in overlap.
-  standard: { overlapH: 0.35, overlapV: 0.28 },
-  fine: { overlapH: 0.40, overlapV: 0.45 },
+
+  // The same band, plus the upper/lower rings and the zenith and nadir
+  // shots needed to photograph the ceiling and floor for real.
+  //
+  // A band plus two pole shots alone cannot cover the sphere: with a
+  // typical main lens the band reaches about +/-27 degrees and a pole shot
+  // only reaches down to 63, leaving a wide unphotographed ring. The rings
+  // exist to close exactly that gap - they are not an optional extra.
+  complet: { overlapH: 0.35, overlapV: 0.30 },
+
+  // Same shape, more overlap everywhere, for when quality matters more than
+  // how long the capture takes.
+  fine: { overlapH: 0.45, overlapV: 0.45 },
 };
 
 // Row centre pitches, evenly spaced, guaranteeing at least `overlapV` of
@@ -77,9 +74,15 @@ function rowPitchesFor(vFovDeg, overlapV) {
   return out;
 }
 
-export function buildGrid(preset, hFovDeg, includePoles) {
-  const cfg = DENSITY_PRESETS[preset] || DENSITY_PRESETS.standard;
-  const vFovDeg = verticalFovFromHorizontal(hFovDeg, STORE_W, STORE_H);
+// frameAspect is the captured frame's height / width. It matters a lot:
+// the same lens held upright rather than sideways puts its WIDE field of
+// view on the vertical axis, which roughly doubles how much vertical
+// overlap a given number of rows gets (measured for a 68-degree lens with
+// 3 rows plus poles: 16% lying down versus 34% upright). It is read from
+// the camera at capture time rather than assumed - see frameSizeFor.
+export function buildGrid(preset, hFovDeg, includePoles, frameAspect = 480 / 640) {
+  const cfg = DENSITY_PRESETS[preset] || DENSITY_PRESETS.complet;
+  const vFovDeg = verticalFovFromHorizontal(hFovDeg, 1, frameAspect);
   const rowPitches = cfg.horizonOnly ? [0] : rowPitchesFor(vFovDeg, cfg.overlapV);
 
   const targets = [];
