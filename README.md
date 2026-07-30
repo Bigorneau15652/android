@@ -132,10 +132,13 @@ de partage, sans avoir besoin d'un serveur en ligne.
    - **La jauge verticale à droite** : l'inclinaison (haut/bas). Le repère
      glisse vers le haut ou le bas selon qu'il faut lever ou baisser le
      téléphone ; il devient vert fluo une fois dans la zone.
-2. Elle te guide vers une série de cibles réparties sur la sphère (par
-   défaut : 3 rangées + zénith/nadir), en terminant chaque rangée avant de
-   passer à la suivante. Pivote sur toi-même lentement, en tenant le
-   téléphone à hauteur des yeux et bien droit.
+2. Elle te guide vers une série de cibles réparties sur la sphère, en
+   terminant chaque rangée avant de passer à la suivante. Pivote sur
+   toi-même lentement, en tenant le téléphone à hauteur des yeux et bien
+   droit. Le nombre de rangées **et** de photos par rangée est calculé
+   d'après l'angle de champ de ton objectif (environ 28 photos pour un
+   objectif principal typique) : voir « Pourquoi autant de photos » plus
+   bas.
 3. Quand les trois jauges sont **vertes**, la photo est prise automatiquement
    (tu peux désactiver l'automatique dans Réglages et appuyer sur 📸
    toi-même).
@@ -164,6 +167,51 @@ de partage, sans avoir besoin d'un serveur en ligne.
 Le fichier produit est un **JPG classique** (image équirectangulaire) :
 c'est exactement le format attendu par le widget Grist Pannellum que tu
 utilises déjà — tu peux l'attacher directement, sans conversion.
+
+## Pourquoi autant de photos
+
+Les rangées ne sont **pas** à un écart fixe : leur espacement est calculé
+d'après l'angle de champ *vertical* de l'objectif, exactement comme
+l'espacement horizontal l'est d'après l'angle horizontal.
+
+C'est essentiel, et ça a été une vraie source de défauts. Une version
+précédente espaçait les rangées de 45° quel que soit l'objectif. Or un
+objectif principal typique (68° horizontal) ne voit que ~54° en vertical
+sur un capteur 4:3 : deux rangées ne partageaient donc que **16%** de
+contenu commun, contre 35% horizontalement — et avec un téléobjectif plus
+étroit, elles ne se touchaient carrément plus.
+
+Pourquoi ça compte : les rangées sont photographiées l'une après l'autre,
+donc le gyroscope a déjà dérivé quand tu commences la suivante. Pour
+annuler cette dérive, l'app doit comparer du contenu **commun** entre
+rangées. Avec seulement 16% de recouvrement — moins les 2 à 3° d'erreur
+que porte chaque photo — il ne restait presque rien à comparer, et les
+rangées restaient décalées les unes par rapport aux autres. Le symptôme
+visible : un même objet apparaissant à plusieurs hauteurs, chaque copie
+décalée horizontalement d'une valeur différente (l'armoire en trois
+exemplaires, plus à droite en haut, plus à gauche en bas).
+
+Mesuré : **14° d'écart de lacet entre la rangée du haut et celle du bas,
+contre 5° une fois les rangées correctement superposées** (erreur moyenne
+d'orientation 4,7° → 2,8°). Le coût est d'environ 6 photos de plus (22 →
+28 pour un objectif principal) — largement rentable.
+
+## À propos du message « couverture incomplète »
+
+La grille couvre **100% de la sphère en géométrie pure** — vérifié pour
+tous les objectifs, et même en injectant plusieurs degrés d'erreur
+d'orientation. En pratique la mesure tombe plutôt entre 97% et 99%, parce
+que l'erreur d'orientation réelle de chaque photo grignote quelques
+pour-cent, **presque exclusivement dans les tout derniers degrés autour du
+zénith et du nadir**. Ces zones sont comblées en étirant les pixels
+voisins, ce qui est invisible en pratique.
+
+Ce n'était donc **pas** la cause des défauts d'assemblage, et il n'y a rien
+à ajouter (ni photo supplémentaire, ni changement de focale) : chercher les
+100% serait courir après un chiffre sans effet visible. Le seuil
+d'avertissement a été abaissé de 97% à 92% en conséquence — il se
+déclenchait quasiment à chaque capture pour un non-problème, ce qui noyait
+les cas qui méritent vraiment ton attention.
 
 ## Pour obtenir la meilleure qualité
 

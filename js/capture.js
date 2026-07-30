@@ -12,7 +12,9 @@ import { prepareShot } from './align.js';
 // Stored frame size. Big enough that a shot still out-resolves its slice
 // of a 4096-wide equirect output, small enough that a dense grid stays
 // well inside a phone browser's memory budget (~1.2MB per shot).
-const STORE_W = 640, STORE_H = 480;
+// Exported because the capture grid's row spacing has to be derived from
+// this frame's vertical field of view, which depends on its aspect ratio.
+export const STORE_W = 640, STORE_H = 480;
 const d2r = Math.PI / 180;
 
 // Lists the phone's rear cameras (ultra-wide / main / tele are separate

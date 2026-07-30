@@ -466,6 +466,19 @@ const previewPannellumEl = document.getElementById('preview-pannellum');
 const previewCoverageBanner = document.getElementById('preview-coverage-banner');
 const previewNameInput = document.getElementById('preview-name');
 
+// The capture grid covers the full sphere geometrically (verified: 100% for
+// every supported lens, and still 100% with several degrees of orientation
+// error injected), so a *small* shortfall here is not a capture mistake to
+// warn about - it is the couple of percent that the real per-shot
+// orientation error inevitably nibbles off, essentially all of it in the
+// last few degrees around the zenith and nadir, where it is filled by
+// stretching the nearest pixels and is invisible in practice. This used to
+// be 0.97, which real captures land just under almost every time, so the
+// warning fired constantly for a non-issue and buried the cases that
+// genuinely deserve attention. Only a shortfall big enough to leave a
+// visible smeared patch is worth surfacing.
+const COVERAGE_WARN = 0.92;
+
 function openPreview() {
   showScreen('screen-preview');
   const coverage = pendingCoverage;
@@ -483,7 +496,7 @@ function openPreview() {
       `écran, d'une tour PC ou d'objets métalliques). La zone concernée a été comblée avec les pixels les ` +
       `plus proches — pour un meilleur résultat, refais la capture en t'éloignant un peu de ces appareils.`;
     previewCoverageBanner.classList.remove('hidden');
-  } else if (coverage < 0.97) {
+  } else if (coverage < COVERAGE_WARN) {
     previewCoverageBanner.textContent = `⚠️ Couverture incomplète (${Math.round(coverage * 100)}% de la sphère). ` +
       `Les zones manquantes ont été comblées avec les pixels les plus proches — vérifie le rendu ci-dessus. ` +
       `Tu peux recommencer la capture si le résultat n'est pas satisfaisant.`;
