@@ -586,76 +586,111 @@ function bilinearRGB(data, w, h, px, py, out) {
   }
 }
 
-async function renderEquirect(shots, params, outW, outH, onProgress) {
-  const colorSum = new Float32Array(outW * outH * 3);
-  const weightSum = new Float32Array(outW * outH);
+// Walks every output pixel this shot can contribute to, handing the
+// callback the output index plus both the undistorted and distorted frame
+// coordinates. Shared by both rendering passes so the projection and the
+// scan-window bookkeeping live in exactly one place.
+function forEachCoveredPixel(shot, params, outW, outH, cb) {
   const { tanH, tanV, k1 } = params;
-  const rgb = [0, 0, 0];
+  const f = shot.basis.forward;
+  const pitchC = Math.asin(Math.max(-1, Math.min(1, f[2]))) / d2r;
+  let yawC = Math.atan2(f[0], f[1]) / d2r;
+  if (yawC < 0) yawC += 360;
 
+  // Generous scan window: pole distortion widens the longitude range,
+  // and a rolled frame's bounding box is larger than an upright one.
+  const marginLon = Math.min(179, (params.hFovDeg / 2) / Math.max(0.15, Math.cos(pitchC * d2r)) + 18);
+  const marginLat = params.vFovDeg / 2 + 18;
+  const rowMin = Math.max(0, Math.floor(((90 - Math.min(90, pitchC + marginLat)) / 180) * outH));
+  const rowMax = Math.min(outH - 1, Math.ceil(((90 - Math.max(-90, pitchC - marginLat)) / 180) * outH));
+  const colSpan = Math.ceil((marginLon / 360) * outW);
+  const colCenter = Math.round((yawC / 360) * outW);
+
+  for (let row = rowMin; row <= rowMax; row++) {
+    const phi = (90 - (row / outH) * 180) * d2r;
+    const sinPhi = Math.sin(phi), cosPhi = Math.cos(phi);
+    for (let o = -colSpan; o <= colSpan; o++) {
+      let col = (colCenter + o) % outW; if (col < 0) col += outW;
+      const lambda = (col / outW) * 360 * d2r;
+      const ray = [cosPhi * Math.sin(lambda), cosPhi * Math.cos(lambda), sinPhi];
+
+      const ideal = idealFromRay(shot.basis, ray, tanH, tanV);
+      if (!ideal) continue;
+      const nx = ideal[0], ny = ideal[1];
+      if (nx < -1 || nx > 1 || ny < -1 || ny > 1) continue;
+      const [dx, dy] = distort(nx, ny, k1);
+      if (dx < -1 || dx > 1 || dy < -1 || dy > 1) continue;
+
+      cb(row * outW + col, nx, ny, dx, dy);
+    }
+  }
+}
+
+// How much better (in the 0..1 "distance from frame border" quality below)
+// one shot must be before it takes a pixel outright. Small, so the blend is
+// confined to a narrow band along the seam between two shots.
+const SEAM_HANDOFF = 0.01;
+// Past this margin the loser's weight is exp(-6), i.e. nothing; skipping it
+// also means most pixels never pay for a bilinear sample at all.
+const SEAM_CUTOFF = SEAM_HANDOFF * 6;
+
+async function renderEquirect(shots, params, outW, outH, onProgress) {
+  const n = outW * outH;
+  const colorSum = new Float32Array(n * 3);
+  const weightSum = new Float32Array(n);
+  // Best "quality" any shot achieves for each output pixel, where quality
+  // is distance from the frame border (1 dead centre, 0 at the very edge).
+  const bestQ = new Float32Array(n).fill(-1);
+
+  // --- Pass 1: find, per output pixel, the best any shot can do ---
+  for (const shot of shots) {
+    forEachCoveredPixel(shot, params, outW, outH, (di, nx, ny) => {
+      const q = 1 - Math.max(Math.abs(nx), Math.abs(ny));
+      if (q > bestQ[di]) bestQ[di] = q;
+    });
+    await yieldToUi();
+  }
+
+  // --- Pass 2: composite, weighting each shot by how close it comes to
+  // that per-pixel best ---
+  //
+  // Weighting relative to the winner, rather than by an absolute function
+  // of position in the frame, is the point. The previous version used
+  // pow(edge, 8), whose *relative* split between two overlapping shots
+  // depends on where in their frames the pixel happens to fall: measured,
+  // edge 0.31 vs 0.30 blends them 57/43 - averaging two views of the same
+  // thing almost equally - while 0.10 vs 0.05 is winner-take-all. So over
+  // much of every overlap, content was a half-and-half average of two
+  // shots; wherever they disagreed (residual misalignment, and parallax,
+  // which no rotation-only model can fix) that average washed detail out
+  // until objects became unrecognisable - reported from a real capture as
+  // monitors missing and a coat rack "you can't tell what it is".
+  //
+  // Subtracting the per-pixel best first makes the margin needed to win
+  // the same everywhere: a shot only shares a pixel while it is within
+  // SEAM_HANDOFF of the best available, which is a narrow band along the
+  // Voronoi-style seam between neighbouring shots. Everywhere else a
+  // single shot supplies the pixel outright, so detail survives intact,
+  // and the unavoidable 50/50 tie right on the seam is confined to that
+  // thin band instead of spreading across the whole overlap.
+  const rgb = [0, 0, 0];
   for (let si = 0; si < shots.length; si++) {
     const shot = shots[si];
     const data = shot.imageData.data;
     const sw = shot.w, sh = shot.h;
-    const f = shot.basis.forward;
-    const pitchC = Math.asin(Math.max(-1, Math.min(1, f[2]))) / d2r;
-    let yawC = Math.atan2(f[0], f[1]) / d2r;
-    if (yawC < 0) yawC += 360;
+    const gain = shot.gain;
+    forEachCoveredPixel(shot, params, outW, outH, (di, nx, ny, dx, dy) => {
+      const q = 1 - Math.max(Math.abs(nx), Math.abs(ny));
+      const behind = bestQ[di] - q;
+      if (behind > SEAM_CUTOFF) return;
+      const weight = behind <= 0 ? 1 : Math.exp(-behind / SEAM_HANDOFF);
 
-    // Generous scan window: pole distortion widens the longitude range,
-    // and a rolled frame's bounding box is larger than an upright one.
-    const marginLon = Math.min(179, (params.hFovDeg / 2) / Math.max(0.15, Math.cos(pitchC * d2r)) + 18);
-    const marginLat = params.vFovDeg / 2 + 18;
-    const rowMin = Math.max(0, Math.floor(((90 - Math.min(90, pitchC + marginLat)) / 180) * outH));
-    const rowMax = Math.min(outH - 1, Math.ceil(((90 - Math.max(-90, pitchC - marginLat)) / 180) * outH));
-    const colSpan = Math.ceil((marginLon / 360) * outW);
-    const colCenter = Math.round((yawC / 360) * outW);
-
-    for (let row = rowMin; row <= rowMax; row++) {
-      const phi = (90 - (row / outH) * 180) * d2r;
-      const sinPhi = Math.sin(phi), cosPhi = Math.cos(phi);
-      for (let o = -colSpan; o <= colSpan; o++) {
-        let col = (colCenter + o) % outW; if (col < 0) col += outW;
-        const lambda = (col / outW) * 360 * d2r;
-        const ray = [cosPhi * Math.sin(lambda), cosPhi * Math.cos(lambda), sinPhi];
-
-        const ideal = idealFromRay(shot.basis, ray, tanH, tanV);
-        if (!ideal) continue;
-        const nx = ideal[0], ny = ideal[1];
-        if (nx < -1 || nx > 1 || ny < -1 || ny > 1) continue;
-        const [dx, dy] = distort(nx, ny, k1);
-        if (dx < -1 || dx > 1 || dy < -1 || dy > 1) continue;
-
-        bilinearRGB(data, sw, sh, (dx * 0.5 + 0.5) * (sw - 1), (0.5 - dy * 0.5) * (sh - 1), rgb);
-
-        // Weight is steep (edge raised to a high power) rather than a
-        // narrow-vs-wide feather band. Measured with a dedicated test
-        // before settling on this: at the true midpoint between two
-        // adjacent shots, both are *by construction* equally far from
-        // their own center, so a plain distance-based feather - however
-        // narrow its transition band is - still lands both shots at
-        // (near-)equal weight right there and blends them 50/50. With any
-        // residual misalignment (a few degrees is normal even after
-        // refinement), that 50/50 blend is exactly the "ghost image"
-        // reported from a real capture: two offset copies of the same
-        // edge, each rendered at partial, near-equal opacity - and
-        // narrowing the band alone doesn't fix it (confirmed: same flat
-        // 50/50 plateau at 0.45, 0.12, and near-binary 0.02 alike, just
-        // wider or narrower). A steep power law stays sensitive across the
-        // *whole* frame instead of saturating to "fully opaque" well
-        // before the midpoint, so the small asymmetry the misalignment
-        // itself introduces is enough to tip the balance decisively
-        // towards whichever shot is even slightly closer - collapsing
-        // most of the wide flat 50/50 zone into a much narrower handoff.
-        const edge = Math.max(0, 1 - Math.max(Math.abs(nx), Math.abs(ny)));
-        const weight = Math.max(0.0002, Math.pow(edge, 8));
-
-        const di = row * outW + col;
-        weightSum[di] += weight;
-        colorSum[di * 3] += rgb[0] * shot.gain * weight;
-        colorSum[di * 3 + 1] += rgb[1] * shot.gain * weight;
-        colorSum[di * 3 + 2] += rgb[2] * shot.gain * weight;
-      }
-    }
+      bilinearRGB(data, sw, sh, (dx * 0.5 + 0.5) * (sw - 1), (0.5 - dy * 0.5) * (sh - 1), rgb);
+      weightSum[di] += weight;
+      colorSum[di * 3] += rgb[0] * gain * weight;
+      colorSum[di * 3 + 1] += rgb[1] * gain * weight;
+      colorSum[di * 3 + 2] += rgb[2] * gain * weight;
+    });
     if (onProgress) onProgress((si + 1) / shots.length);
     await yieldToUi();
   }

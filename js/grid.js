@@ -26,6 +26,18 @@ export const DENSITY_PRESETS = {
   // everything well above/below eye level is left to the pole shots (or
   // stretched, if those are disabled too).
   rapide: { overlapH: 0.30, horizonOnly: true },
+  // Single row, generous horizontal overlap, and zenith/nadir forced off:
+  // a cylindrical panorama of the walls rather than a full sphere.
+  //
+  // This is the projection dedicated phone "panorama" modes use, and it
+  // sidesteps most of what makes a full sphere hard: there are no rows to
+  // register against each other (the single largest error source left), the
+  // photographer's own feet never appear, and the floor and ceiling - which
+  // are both the closest surfaces to the lens and the most obliquely viewed,
+  // so by far the worst for parallax - are simply not photographed. The
+  // trade is that ceiling and floor end up stretched from the nearest
+  // captured pixels instead of being real detail.
+  panoramique: { overlapH: 0.45, horizonOnly: true, forceNoPoles: true },
   // overlapV is a *minimum*; the achieved overlap is usually higher, since
   // the row count is an integer and the span gets divided evenly. 0.28 is
   // tuned so a typical phone main lens (66-68 degrees) lands on 4 rows /
@@ -78,7 +90,7 @@ export function buildGrid(preset, hFovDeg, includePoles) {
       targets.push({ yaw: (360 / cols) * i, pitch, row: pitch, isPole: false });
     }
   }
-  if (includePoles) {
+  if (includePoles && !cfg.forceNoPoles) {
     targets.push({ yaw: 0, pitch: 90, row: 90, isPole: true });
     targets.push({ yaw: 0, pitch: -90, row: -90, isPole: true });
   }

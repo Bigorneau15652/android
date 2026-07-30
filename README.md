@@ -168,6 +168,39 @@ Le fichier produit est un **JPG classique** (image équirectangulaire) :
 c'est exactement le format attendu par le widget Grist Pannellum que tu
 utilises déjà — tu peux l'attacher directement, sans conversion.
 
+## Quel mode choisir (important pour la qualité)
+
+Dans **Réglages → Densité de la grille de capture** :
+
+- **Panoramique cylindrique** — une seule rangée à hauteur des yeux, sans
+  plafond ni sol (~10 photos pour un objectif principal). **C'est le mode à
+  privilégier si ce qui t'intéresse, ce sont les murs** : tableaux, écrans,
+  fenêtres, mobilier. Il évite d'un coup l'essentiel de ce qui rend une
+  sphère complète difficile :
+  - il n'y a **aucune rangée à recaler sur une autre** — la principale
+    source d'erreur restante disparaît par construction ;
+  - tes propres pieds n'apparaissent jamais ;
+  - le sol et le plafond, qui sont à la fois les surfaces les plus proches
+    de l'objectif et les plus obliques — donc de très loin les pires pour la
+    parallaxe — ne sont simplement pas photographiés.
+
+  Mesuré sur une scène de test : fidélité équivalente dans la bande des murs
+  (0,835 contre 0,856 pour la sphère complète), mais **pire cas meilleur**
+  (0,68 contre 0,61) et **netteté supérieure** (1,15 : chaque pixel final
+  reçoit plus de pixels d'origine, puisque chaque photo couvre une zone plus
+  petite). Le tout en 10 photos au lieu de 28 et 2,3 s de traitement au lieu
+  de 12 s. En conditions réelles l'écart devrait être encore plus favorable,
+  puisque le test de laboratoire ne simule pas la parallaxe, que ce mode
+  réduit fortement.
+
+  En contrepartie, plafond et sol sont comblés en étirant les pixels les plus
+  proches au lieu d'être de vrais détails.
+
+- **Standard — sphère complète** (~28 photos) : à choisir quand tu as
+  réellement besoin de voir le plafond et le sol.
+
+- **Rapide** / **Fine** : variantes plus légère et plus dense.
+
 ## Pourquoi autant de photos
 
 Les rangées ne sont **pas** à un écart fixe : leur espacement est calculé
@@ -237,9 +270,20 @@ les cas qui méritent vraiment ton attention.
 
 - L'assemblage recale les photos les unes par rapport aux autres par
   corrélation d'image, mais **sans détection de points caractéristiques ni
-  fondu multi-bandes** comme les moteurs professionnels. Résultat : bon
-  dans la majorité des cas, mais des jonctions restent possibles sur des
-  scènes très proches ou peu texturées.
+  déformation locale** comme les moteurs professionnels : chaque photo ne
+  peut être que *tournée*, jamais déformée localement. Résultat : bon dans
+  la majorité des cas, mais des jonctions restent possibles sur des scènes
+  très proches ou peu texturées.
+- Le mélange entre photos qui se chevauchent se fait par **couture** : chaque
+  pixel est pris presque entièrement à la photo qui le voit le mieux (la plus
+  proche de son centre), et deux photos ne sont moyennées que sur une bande
+  étroite le long de la jonction. Une version précédente pondérait selon la
+  position absolue dans le cadre, ce qui moyennait deux photos à parts
+  quasi égales (57/43) sur une grande partie de chaque zone de
+  chevauchement : là où elles ne coïncidaient pas exactement, le détail
+  était lavé jusqu'à rendre des objets méconnaissables. Mesuré : 9 marqueurs
+  sur 12 conservaient au moins 60% de leur contraste, contre **12 sur 12**
+  après correction.
 - La parallaxe (voir ci-dessus) ne peut pas être corrigée, seulement
   minimisée par la façon de tenir le téléphone.
 - Si tu désactives les photos zénith/nadir (plafond/sol), ces zones sont
