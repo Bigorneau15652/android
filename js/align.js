@@ -31,6 +31,19 @@ export function verticalFovFromHorizontal(hFovDeg, width, height) {
 }
 
 // ---------------- small vector helpers ----------------
+function angularDeg(a, b) {
+  return Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) / d2r;
+}
+// Same yaw/pitch -> world-frame (East, North, Up) basis convention as
+// orientation.js's forwardVec=[east,north,up]/atan2(east,north)/asin(up).
+function basisFromYawPitch(yawDeg, pitchDeg) {
+  const l = yawDeg * d2r, p = pitchDeg * d2r;
+  return {
+    forward: [Math.sin(l) * Math.cos(p), Math.cos(l) * Math.cos(p), Math.sin(p)],
+    right: [Math.cos(l), -Math.sin(l), 0],
+    up: [-Math.sin(l) * Math.sin(p), -Math.cos(l) * Math.sin(p), Math.cos(p)],
+  };
+}
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [
   a[1] * b[2] - a[2] * b[1],
@@ -79,7 +92,11 @@ export function rotateBasis(basis, dyawDeg, dpitchDeg, drollDeg) {
 // We also precompute a small greyscale version used for matching: the
 // optimizer only ever needs coarse structure, and working at ~160x120
 // makes each candidate evaluation cheap enough to search thousands of them.
-export function prepareShot(imageData, basis) {
+//
+// targetHint (optional {yaw, pitch}) is the on-screen target this shot was
+// captured for, if any - see stitchPanorama's outlier check for why it
+// matters.
+export function prepareShot(imageData, basis, targetHint = null) {
   const { width: w, height: h, data } = imageData;
   const gw = 160, gh = Math.max(1, Math.round((h / w) * 160));
   const gray = new Float32Array(gw * gh);
@@ -103,6 +120,7 @@ export function prepareShot(imageData, basis) {
     imageData, w, h, gray, gw, gh,
     basis: { right: [...basis.right], up: [...basis.up], forward: [...basis.forward] },
     baseBasis: { right: [...basis.right], up: [...basis.up], forward: [...basis.forward] },
+    targetHint,
     gain: 1,
   };
 }
@@ -715,6 +733,43 @@ export async function stitchPanorama(shots, options, onProgress) {
 
   const report = (frac, label) => { if (onProgress) onProgress(Math.min(1, Math.max(0, frac)), label); };
 
+  // A shot's own sensor reading can occasionally be badly wrong at the
+  // exact instant of capture - most plausibly magnetic interference near
+  // electronics (a monitor, a desktop tower) briefly disturbing the
+  // compass. When that happens, its content renders at a completely
+  // wrong spot in the panorama - a duplicate-looking "ghost" of whatever
+  // is actually there, potentially tens of degrees away, far beyond what
+  // the bounded per-shot refinement below can ever correct (it only ever
+  // searches a few degrees around wherever it starts).
+  //
+  // A shot can only ever have been auto-captured once its aim was within
+  // the guide's own tolerance of its target (a few degrees), so a sensor
+  // reading disagreeing with its capture target by much more than that
+  // was almost certainly wrong at that instant. Guessing where such a
+  // shot actually belongs was tried and found unreliable - a wrong
+  // position can score deceptively well against a neighbour it doesn't
+  // really belong to, and risks pulling that neighbour's own alignment
+  // off too - so it's simply excluded from the render instead. The gap
+  // it leaves gets filled by neighbouring shots stretching to cover it,
+  // the same graceful fallback already used for a disabled zenith/nadir
+  // shot, which is a far less jarring result than confidently duplicating
+  // real content in the wrong place.
+  const EXCLUDE_DEVIATION_DEG = 25;
+  let excludedCount = 0;
+  const plausible = shots.filter((s) => {
+    if (!s.targetHint) return true;
+    const targetBasis = basisFromYawPitch(s.targetHint.yaw, s.targetHint.pitch);
+    return angularDeg(targetBasis.forward, s.baseBasis.forward) <= EXCLUDE_DEVIATION_DEG;
+  });
+  // Only apply the filter if it leaves something to render - if every
+  // shot somehow tripped it (a systemic issue, not a one-off glitch),
+  // rendering with the sensor readings as-is is still better than
+  // rendering nothing.
+  if (plausible.length > 0 && plausible.length < shots.length) {
+    excludedCount = shots.length - plausible.length;
+    shots = plausible;
+  }
+
   let hFov = hFovGuess;
   let k1 = 0;
 
@@ -794,5 +849,5 @@ export async function stitchPanorama(shots, options, onProgress) {
   });
   report(1, 'Terminé');
 
-  return { canvas: result.canvas, coverage: result.coverage, hFovDeg: hFov, k1 };
+  return { canvas: result.canvas, coverage: result.coverage, hFovDeg: hFov, k1, excludedCount };
 }

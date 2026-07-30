@@ -539,7 +539,7 @@ export class CaptureController {
 
     this._shotCtx.drawImage(this.video, 0, 0, STORE_W, STORE_H);
     const imageData = this._shotCtx.getImageData(0, 0, STORE_W, STORE_H);
-    this.shots.push(prepareShot(imageData, basis));
+    this.shots.push(prepareShot(imageData, basis, { yaw: target.yaw, pitch: target.pitch }));
 
     target.done = true;
     if (navigator.vibrate) navigator.vibrate(40);

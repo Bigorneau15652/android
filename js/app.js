@@ -24,6 +24,7 @@ const DEFAULT_SETTINGS = {
 let settings = loadSettings();
 let pendingCanvas = null;
 let pendingCoverage = 1;
+let pendingExcludedCount = 0;
 let currentCaptureController = null;
 let currentViewer = null; // active pannellum instance, destroyed on screen change
 let currentViewerPhotoId = null;
@@ -453,6 +454,7 @@ async function finishCapture(shots) {
 
   pendingCanvas = result.canvas;
   pendingCoverage = result.coverage;
+  pendingExcludedCount = result.excludedCount || 0;
   // The solver measures the lens far more reliably than any manual guess,
   // so remember it against the lens that was actually used.
   if (settings.refine && result.hFovDeg) setMeasuredFov(Math.round(result.hFovDeg));
@@ -467,7 +469,21 @@ const previewNameInput = document.getElementById('preview-name');
 function openPreview() {
   showScreen('screen-preview');
   const coverage = pendingCoverage;
-  if (coverage < 0.97) {
+  if (pendingExcludedCount > 0) {
+    const s = pendingExcludedCount > 1 ? 's' : '';
+    // More specific and actionable than the generic coverage banner below:
+    // names the likely real-world cause (a shot's compass reading
+    // disagreed with where it was actually aimed - most often magnetic
+    // interference from nearby electronics) rather than just reporting a
+    // percentage, per the project's own rule that data-quality banners
+    // must say what to check, not just how much is missing.
+    previewCoverageBanner.textContent =
+      `⚠️ ${pendingExcludedCount} photo${s} ignorée${s} : le capteur d'orientation ne correspondait plus ` +
+      `à la cible visée au moment de la prise (souvent causé par des interférences magnétiques près d'un ` +
+      `écran, d'une tour PC ou d'objets métalliques). La zone concernée a été comblée avec les pixels les ` +
+      `plus proches — pour un meilleur résultat, refais la capture en t'éloignant un peu de ces appareils.`;
+    previewCoverageBanner.classList.remove('hidden');
+  } else if (coverage < 0.97) {
     previewCoverageBanner.textContent = `⚠️ Couverture incomplète (${Math.round(coverage * 100)}% de la sphère). ` +
       `Les zones manquantes ont été comblées avec les pixels les plus proches — vérifie le rendu ci-dessus. ` +
       `Tu peux recommencer la capture si le résultat n'est pas satisfaisant.`;
