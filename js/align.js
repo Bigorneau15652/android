@@ -233,20 +233,11 @@ function scoreBasis(shot, basis, groups, params) {
   return totalPossible > 0 ? total / totalPossible : -2;
 }
 
-// Local coarse-to-fine search over (yaw, pitch, roll) corrections.
-function refineShotOrientation(shots, i, params, stages) {
-  const neighbours = neighboursOf(shots, i, params.hFovDeg);
-  if (!neighbours.length) return 0;
-  const groups = gatherNeighbourSamples(shots, i, neighbours, params);
-  if (!groups.length) return 0;
-
-  const start = shots[i].basis;
-  let bestD = [0, 0, 0];
-  let bestScore = scoreBasis(shots[i], start, groups, params);
-  const baseScore = bestScore;
-
+// One coarse-to-fine grid search, starting from a given center and score.
+function refineFrom(shots, i, groups, params, start, centerD, centerScore, stages) {
+  let bestD = centerD, bestScore = centerScore;
   for (const { step, radius, rollStep, rollRadius } of stages) {
-    const c = bestD.slice();
+    const c = bestD;
     for (let dy = -radius; dy <= radius; dy += step) {
       for (let dp = -radius; dp <= radius; dp += step) {
         for (let dr = -rollRadius; dr <= rollRadius; dr += rollStep || 1) {
@@ -259,10 +250,74 @@ function refineShotOrientation(shots, i, params, stages) {
       }
     }
   }
-  if (bestScore > baseScore) {
-    shots[i].basis = rotateBasis(start, bestD[0], bestD[1], bestD[2]);
+  return { d: bestD, score: bestScore };
+}
+
+// Local coarse-to-fine search over (yaw, pitch, roll) corrections.
+//
+// topK controls how many of the coarse stage's local peaks get carried
+// into the finer stages, each refined independently before a winner is
+// picked. A repetitive surface (e.g. a wood floor's plank grain, seen
+// nearly edge-to-edge in a downward-tilted shot with barely any other
+// content to anchor it) can score a wrong candidate a few degrees away
+// competitively at the coarse stage's resolution - committing to just the
+// single best pick there (topK=1) permanently locks every finer stage
+// onto that wrong branch, since each stage only searches around the
+// previous stage's winner. Carrying a few distinct peaks forward and
+// letting each be judged on its own fully-refined merit avoids that,
+// without ever touching how any single candidate's own local search is
+// scored (an earlier attempt to nudge the score *inside* the local search
+// itself made clean, unambiguous matches worse and was reverted - this
+// keeps that scoring pure and only adds a tie-break at the very end).
+function refineShotOrientation(shots, i, params, stages, topK = 1) {
+  const neighbours = neighboursOf(shots, i, params.hFovDeg);
+  if (!neighbours.length) return 0;
+  const groups = gatherNeighbourSamples(shots, i, neighbours, params);
+  if (!groups.length) return 0;
+
+  const start = shots[i].basis;
+  const baseScore = scoreBasis(shots[i], start, groups, params);
+  const [coarseStage, ...fineStages] = stages;
+
+  const peaks = [{ d: [0, 0, 0], score: baseScore }];
+  if (coarseStage) {
+    const { step, radius, rollStep, rollRadius } = coarseStage;
+    for (let dy = -radius; dy <= radius; dy += step) {
+      for (let dp = -radius; dp <= radius; dp += step) {
+        for (let dr = -rollRadius; dr <= rollRadius; dr += rollStep || 1) {
+          const cand = [dy, dp, dr];
+          const basis = rotateBasis(start, cand[0], cand[1], cand[2]);
+          peaks.push({ d: cand, score: scoreBasis(shots[i], basis, groups, params) });
+          if (!rollRadius) break;
+        }
+      }
+    }
   }
-  return bestScore;
+  peaks.sort((a, b) => b.score - a.score);
+  const picked = [];
+  for (const p of peaks) {
+    if (picked.length >= topK) break;
+    const tooClose = picked.some((q) =>
+      Math.abs(q.d[0] - p.d[0]) < coarseStage.step && Math.abs(q.d[1] - p.d[1]) < coarseStage.step);
+    if (!tooClose) picked.push(p);
+  }
+
+  let best = null;
+  for (const peak of picked) {
+    const refined = refineFrom(shots, i, groups, params, start, peak.d, peak.score, fineStages);
+    // Same deviation-from-sensor-baseline tie-breaker already used to pick
+    // between whole-FOV candidates, here breaking ties between orientation
+    // candidates instead - a small nudge, not a hard constraint, so a
+    // clearly-better-scoring far candidate still wins on real evidence.
+    const deviation = Math.hypot(refined.d[0], refined.d[1], refined.d[2]);
+    const pickScore = refined.score - 0.01 * deviation;
+    if (!best || pickScore > best.pickScore) best = { ...refined, pickScore };
+  }
+
+  if (best.score > baseScore) {
+    shots[i].basis = rotateBasis(start, best.d[0], best.d[1], best.d[2]);
+  }
+  return best.score;
 }
 
 const REFINE_STAGES = [
@@ -716,7 +771,7 @@ export async function stitchPanorama(shots, options, onProgress) {
     for (let pass = 0; pass < 2; pass++) {
       const params = makeParams(hFov, k1, shots[0]);
       for (let i = 0; i < shots.length; i++) {
-        refineShotOrientation(shots, i, params, REFINE_STAGES);
+        refineShotOrientation(shots, i, params, REFINE_STAGES, 3);
         if (i % 4 === 0) await yieldToUi();
       }
       report(0.6 + 0.2 * ((pass + 1) / 2), `Recalage des photos (passe ${pass + 1}/2)`);
