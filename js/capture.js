@@ -236,6 +236,7 @@ export class CaptureController {
     this.stream = null;
     this._running = false;
     this._alignedSince = null;
+    this._wasAligned = false;
     this._captureBusy = false;
     this._angSpeed = 0; // smoothed degrees/second, for the steadiness gate
     this._prevForward = null;
@@ -326,6 +327,10 @@ export class CaptureController {
     // guide burns through several close targets at ~60/s instead of
     // waiting for a deliberate, held-still aim on each one.
     this._alignedSince = null;
+    // Same reasoning as above, for the "just aligned" pulse: without this,
+    // a new target already inside tolerance the instant it becomes current
+    // reads as "still aligned from before" and never fires its own pulse.
+    this._wasAligned = false;
   }
 
   _loop() {
@@ -510,6 +515,17 @@ export class CaptureController {
 
     const steady = this._angSpeed <= this.settings.steadyLimit;
     const aligned = yawOk && pitchOk && rollOk && steady;
+
+    // A short, distinct pulse the instant the target is reached - not just
+    // the confirmation buzz once the shot actually fires (below, in
+    // captureCurrent). Aiming high or low targets without extending the
+    // arm often means the screen isn't visible at all (holding the phone
+    // close to the body while tilting the wrist upward points it away from
+    // the face); this is the only feedback available in that position, so
+    // it needs to exist on its own rather than only in the corner of an
+    // unwatched screen.
+    if (aligned && !this._wasAligned && navigator.vibrate) navigator.vibrate(15);
+    this._wasAligned = aligned;
 
     // Ring stays purely horizontal: its screen x comes only from the yaw
     // difference (a plain single-angle gnomonic projection, pitch is never

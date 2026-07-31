@@ -262,13 +262,24 @@ les cas qui méritent vraiment ton attention.
 
 ## Pour obtenir la meilleure qualité
 
-- **Garde le téléphone près de toi (20–30 cm), pas à bout de bras.** C'est
-  le point le plus important. En pivotant, l'objectif décrit un cercle
-  autour de ton axe de rotation : plus ce cercle est grand, plus les objets
-  proches se décalent les uns par rapport aux autres d'une photo à l'autre
-  (parallaxe). Aucun assemblage par rotation — ni le nôtre, ni celui des
-  applis pro — ne peut corriger ça, et c'est ce qui produit des objets
-  dédoublés.
+- **Garde le téléphone près de toi (20–30 cm), coude plié, pas à bout de
+  bras — y compris pour le plafond et le sol.** C'est le point le plus
+  important. En pivotant, l'objectif décrit un cercle autour de ton axe de
+  rotation : plus ce cercle est grand, plus les objets proches se décalent
+  les uns par rapport aux autres d'une photo à l'autre (parallaxe). Aucun
+  assemblage par rotation — ni le nôtre, ni celui des applis pro — ne peut
+  corriger ça, et c'est ce qui produit des objets dédoublés.
+
+  Le réflexe naturel pour viser le plafond est de tendre le bras vers le
+  haut, ce qui agrandit justement ce cercle — pile au moment où l'erreur
+  fait le plus mal : elle dépend du *rapport* rayon/distance, et le
+  plafond est la surface la plus proche de toute la capture. **Incline le
+  poignet vers le haut ou le bas plutôt que d'avancer le téléphone ou de
+  tendre le bras** ; le coude reste plié pour toutes les photos, y compris
+  le zénith et le nadir. Si tu ne peux pas voir l'écran en visant vers le
+  haut en gardant le téléphone près de toi, c'est normal — vise à
+  l'estime, l'app te guide par le son/la vibration et affiche un rappel à
+  l'écran dès que tu approches d'une cible haute ou basse.
 - **Pivote sur place**, sans faire un pas de côté, pour la même raison.
 - **Immobilise le téléphone** une fraction de seconde une fois la cible
   atteinte : l'app attend d'elle-même que le mouvement se calme (l'anneau

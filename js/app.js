@@ -411,7 +411,15 @@ async function goToCapture() {
   // are needed to overlap properly.
   ctrl.setTargets(buildGrid(settings.density, fov, settings.poles, ctrl.frameAspect()));
 
-  ctrl.on('progress', ({ done, total, aligned, rollOk, pitchOk, steady }) => {
+  // Above/below roughly this pitch is exactly where the temptation to
+  // extend the arm to see the target is strongest - and exactly where
+  // doing so hurts most: the parallax error from a longer radius scales
+  // with how CLOSE the surface being photographed is (ceiling, floor),
+  // not how far, so the one adjustment that helps most is reminded here
+  // rather than only once during onboarding.
+  const HIGH_PITCH_REMINDER_DEG = 35;
+
+  ctrl.on('progress', ({ done, total, aligned, rollOk, pitchOk, steady, rowPitch }) => {
     progressEl.textContent = `${done} / ${total}`;
     if (!rollOk) {
       captureBanner.textContent = '📱 Nivelle le téléphone : aligne la barre du haut (en vert quand c\'est bon).';
@@ -424,6 +432,10 @@ async function goToCapture() {
       captureBanner.classList.remove('hidden');
     } else if (settings.autoCapture && aligned) {
       captureBanner.textContent = '✅ Cible atteinte, capture…';
+      captureBanner.classList.remove('hidden');
+    } else if (Math.abs(rowPitch) > HIGH_PITCH_REMINDER_DEG) {
+      captureBanner.textContent = '💡 Coude plié : incline juste le poignet vers le haut/bas, sans avancer ' +
+        'le téléphone ni tendre le bras — ça évite les décalages sur le plafond et le sol.';
       captureBanner.classList.remove('hidden');
     } else {
       captureBanner.classList.add('hidden');
