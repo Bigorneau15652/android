@@ -70,30 +70,33 @@ function loadSettings() {
 function saveSettings() {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
-// The FOV actually used for the currently selected lens: its measured
-// value if this lens has been calibrated, otherwise the manual slider
-// value as a starting guess.
+// The FOV for the currently selected lens - the single source of truth
+// for both the settings slider and the capture grid, whether it came from
+// a manual drag or from calibration. There used to be two separate values
+// (a global "manual" one the slider showed, and a per-lens "measured" one
+// that silently took priority once set): calibrating never moved the
+// slider, and dragging the slider after calibrating had no visible effect
+// at all, since currentFov() always preferred the per-lens value. One
+// value per lens removes that confusion entirely.
 function currentFov() {
-  const measured = settings.lensFov[settings.deviceId || 'default'];
-  return measured || settings.fov;
+  return settings.lensFov[settings.deviceId || 'default'] || settings.fov;
 }
 function setMeasuredFov(fov) {
   settings.lensFov[settings.deviceId || 'default'] = fov;
   saveSettings();
-  updateLensInfo();
+  applySettingsToForm();
 }
 
 function updateLensInfo() {
   const el = document.getElementById('lens-fov-info');
-  const measured = settings.lensFov[settings.deviceId || 'default'];
-  if (measured) {
+  if (settings.lensFov[settings.deviceId || 'default']) {
     el.className = 'banner banner-info';
-    el.textContent = `Angle de champ mesuré pour cet objectif : ${measured}° ` +
-      `(horizontal). Le nombre de photos et l'assemblage s'y adaptent.`;
+    el.textContent = `Angle de champ pour cet objectif : ${currentFov()}° (horizontal). ` +
+      `Réglable ci-dessous, ou calibre-le automatiquement pour plus de précision.`;
   } else {
     el.className = 'banner banner-warning';
     el.textContent = `Angle de champ non mesuré pour cet objectif : l'app part de ` +
-      `${settings.fov}° et corrigera après la première capture. Lance une calibration ` +
+      `${currentFov()}° et corrigera après la première capture. Lance une calibration ` +
       `pour un résultat correct dès la première fois.`;
   }
 }
@@ -101,8 +104,8 @@ function updateLensInfo() {
 function applySettingsToForm() {
   document.getElementById('set-density').value = settings.density;
   document.getElementById('set-poles').value = settings.poles ? '1' : '0';
-  document.getElementById('set-fov').value = settings.fov;
-  document.getElementById('set-fov-value').textContent = settings.fov;
+  document.getElementById('set-fov').value = currentFov();
+  document.getElementById('set-fov-value').textContent = currentFov();
   document.getElementById('set-output').value = settings.output;
   document.getElementById('set-auto').value = settings.autoCapture ? '1' : '0';
   document.getElementById('set-refine').value = settings.refine ? '1' : '0';
@@ -134,15 +137,17 @@ async function populateLenses() {
 lensSelect.addEventListener('change', (e) => {
   settings.deviceId = e.target.value;
   saveSettings();
-  updateLensInfo();
+  applySettingsToForm();
 });
 
 document.getElementById('set-density').addEventListener('change', (e) => { settings.density = e.target.value; saveSettings(); });
 document.getElementById('set-poles').addEventListener('change', (e) => { settings.poles = e.target.value === '1'; saveSettings(); });
 document.getElementById('set-fov').addEventListener('input', (e) => {
-  settings.fov = Number(e.target.value);
-  document.getElementById('set-fov-value').textContent = settings.fov;
+  const v = Number(e.target.value);
+  document.getElementById('set-fov-value').textContent = v;
+  settings.lensFov[settings.deviceId || 'default'] = v;
   saveSettings();
+  updateLensInfo();
 });
 document.getElementById('set-output').addEventListener('change', (e) => { settings.output = e.target.value; saveSettings(); });
 document.getElementById('set-auto').addEventListener('change', (e) => { settings.autoCapture = e.target.value === '1'; saveSettings(); });

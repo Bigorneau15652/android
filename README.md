@@ -57,7 +57,9 @@ Dans **Réglages** :
   tiens le téléphone droit et pivote lentement sur toi-même ; l'app prend
   16 images toute seule, puis calcule. Compte environ 30 secondes. La
   valeur est mémorisée **par objectif**, donc à faire une seule fois pour
-  chacun.
+  chacun, et met à jour le curseur juste en dessous — les deux sont
+  toujours le même réglage, que la valeur vienne d'une calibration ou
+  d'un ajustement manuel du curseur.
 
 Une fois un objectif calibré, tout s'adapte automatiquement : un ultra
 grand-angle demandera moins de photos qu'un téléobjectif pour couvrir la

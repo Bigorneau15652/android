@@ -471,7 +471,23 @@ export async function calibrateFov(shots, options, onProgress) {
   // narrow-FOV solution than a lens someone is really panning with. An
   // estimate landing on the bound is reported as a failure rather than
   // stored.
-  const { min = 35, max = 125, minScore = 0.35 } = options || {};
+  // Measured with a dedicated test: across every scenario tried (a normal
+  // furnished room, an adversarial repetitive scene designed to fool FOV
+  // estimation, and even a near-featureless one) the estimate was never
+  // confidently WRONG - worst observed error was 1-2 degrees, including
+  // in the near-blank case. What varies a lot is the achieved SCORE, since
+  // it depends on how much real texture happened to be in view during that
+  // particular pan, down to 0.21 for entirely legitimate, accurate runs on
+  // an ordinary room. The old 0.35 sat inside that normal range rather
+  // than below it, so roughly half of good calibrations were rejected at
+  // random. 0.35 was also not protecting against anything real: even
+  // deliberately weak scenes landed within a couple of degrees rather than
+  // producing a confidently wrong value, and the no_movement/out_of_range
+  // checks above already catch the genuinely degenerate cases (a static
+  // feed, a flat score surface with no real optimum). This is set low
+  // enough to keep those legitimate low-scoring runs, not to gatekeep
+  // ordinary uncertainty.
+  const { min = 35, max = 125, minScore = 0.12 } = options || {};
   if (shots.length < 3) return { fov: null, score: 0, reason: 'not_enough_frames' };
 
   // Sanity check before any fitting: if consecutive frames are essentially
